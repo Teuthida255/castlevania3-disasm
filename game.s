@@ -1,4 +1,3 @@
-
 .include "include/rominfo.s"
 .include "include/constants.s"
 .include "include/macros.s"
@@ -210,11 +209,7 @@
     .include "data/commonDPCMdata.s"
     .include "code/bank1e.s"
 
-.ifdef IS_EXTENDED_ROM
-    .bank $7f slot 4
-.else
-    .bank $1f slot 4
-.endif
+.bank $1f slot 4
 .org 0
 
     .db $9e

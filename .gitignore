@@ -6,4 +6,6 @@ __pycache__/
 *.png
 *.txt
 *.nes
+*.nl
 *.deb
+*.o

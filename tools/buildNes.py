@@ -8,7 +8,9 @@ header = [
 
 isExtended = 'IS_EXTENDED_ROM' in sys.argv[1:]
 if isExtended:
-    header[4] = 0x40
+    # PRG ROM
+    # header[4] = 0x10
+    # PRG RAM
     header[5] = 0x80
 
 if 'EXTENDED_RAM' in sys.argv[1:]:

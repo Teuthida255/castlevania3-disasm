@@ -1,6 +1,7 @@
 .memorymap
     defaultslot 1
 
+    ; (ram)
     slotsize $800
     slot 0 $0000
 
@@ -22,7 +23,7 @@
 
 .rombanksize $2000
 .ifdef IS_EXTENDED_ROM
-    .rombanks $80
+    .rombanks $50
 .else
     .rombanks $20
 .endif
