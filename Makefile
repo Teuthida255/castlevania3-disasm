@@ -9,11 +9,11 @@ ifdef ROMHACK
 		-D WEAPON_SWAPPING \
 		-D FASTER_STAIR_CLIMB \
 		-D MID_STAGE_PALETTE_SWAP \
-		-D SCREEN_SHAKE \
-		-D SOUND_ENGINE
+		-D SOUND_ENGINE \
+		-D SCREEN_SHAKE
 endif
 
-castlevania3.bin: code/* include/* data/*
+castlevania3.bin: code/* include/* data/* game.s
 	wla-6502 ${DEFINES} -o game.o game.s
 	wlalink -s linkfile castlevania3.bin
 	rm game.o
