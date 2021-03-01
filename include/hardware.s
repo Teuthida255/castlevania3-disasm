@@ -80,6 +80,8 @@
 .define PRG_MODE $5100
 .define PRG_MODE_16_8_8 $02
 .define CHR_MODE $5101
+.define EXTENDED_RAM_PROTECT_A $5102
+.define EXTENDED_RAM_PROTECT_B $5103
 .define EXTENDED_RAM_MODE $5104
 
 ; MMC5 audio

@@ -177,7 +177,12 @@ initMMC5Regs:
 	sta PCM_MODE.w
 
 ; use as extra nametable (unused)
-	sta EXTENDED_RAM_MODE.w
+	.ifndef EXTENDED_RAM
+		sta EXTENDED_RAM_MODE.w
+	.else
+		nop
+		nop
+	.endif
 
 ; start with vertical mirroring
 	lda #NT_VERTICAL_MIRROR
@@ -3166,17 +3171,18 @@ B31_1fc7:		jmp setAndSaveLowerBank		; 4c e6 e2
 
 .ifdef EXTENDED_RAM
 initExtRamAndMMC5Regs:
-	lda #2
-	sta $5102
 	lda #1
-	sta $5103
+	sta EXTENDED_RAM_PROTECT_B.w
+	lda #2
+	sta EXTENDED_RAM_PROTECT_A.w
+	sta EXTENDED_RAM_MODE.w
 
 ; clear extended ram
 	ldx #$80
-	ldy #$00
 	lda #$60
 	sta $01
-	lda #$00
+	ldy #$00
+	TYA
 	sta $00
 -	sta ($00), y
 	iny
