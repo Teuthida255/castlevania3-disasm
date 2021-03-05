@@ -65,14 +65,48 @@
 .define SND_ATTACK_OR_MAIN_MENU_SELECT $72
 
 .ifdef SOUND_ENGINE
-.define NSE_SQ1 $00
-.define NSE_SQ2 $01
-.define NSE_TRI $02
-.define NSE_NOISE $03
-.define NSE_DPCM $04
-.define NSE_PULSE1 $05
-.define NSE_PULSE2 $06
-.define NSE_CONDUCTOR $07
-.define NUM_NON_CONDUCTOR_CHANS $07
-.define NUM_CHANS $08
+    .define NSE_SQ1 $00
+    .define NSE_SQ2 $01
+    .define NSE_TRI $02
+    .define NSE_NOISE $03
+    .define NSE_DPCM $04
+    .define NSE_PULSE1 $05
+    .define NSE_PULSE2 $06
+    .define NSE_CONDUCTOR $07
+    .define NUM_NON_CONDUCTOR_CHANS $07
+    .define NUM_CHANS $08
+
+    .define NSE_SIZEOF_MACRO 3
+    .define INSTRUMENTS_PER_CHANNEL $10
+
+    ; song struct format:
+    .macro song_t
+        song\@:
+            @loop_point:
+                db 
+            @channelDatasetAddr:
+                ; pointer to ChannelDataset
+                dsw NUM_CHANS
+            @macroData:
+                ; repeating pattern of:
+                ; frame length [1]
+                ; phrase idxs _m2 [NUM_CHANS] <-- index into channelDatasetAddr[channel][]
+            @macroDataEnd:
+            db 0
+    .endm
+
+    .define SONG_MACRO_DATA_OFFSET 2*NUM_CHANS+1
+
+    .macro channelDataset_t
+        channelDataset\@:
+            @instrumentAddr:
+                dsw 10
+            @phraseAddr:
+                ; dsw ...
+    .endm
+
+    
+
+    .define MUS_SILENCE $FF
+    
 .endif

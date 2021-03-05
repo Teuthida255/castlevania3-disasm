@@ -7,7 +7,6 @@
 * Helper scripts:
     * assume the PRG ROM exists at `original/OR.bin`, though this is just for data extraction atm
     * require the `pypng` package to be installed. `python3 -m pip install pypng`
-    * `python` on the PATH must refer to python3.
 
 ## Structure
 * Disassembled PRG ROM exists in `code/`

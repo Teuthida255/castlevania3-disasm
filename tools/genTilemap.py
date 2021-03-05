@@ -147,4 +147,4 @@ if is_vertical:
     screensWide = 1
 else:
     screensWide = numScreens
-os.system(f'python tools/gfx.py 1 {screensWide*32} {joinedPalettes}')
+os.system(f'python3 tools/gfx.py 1 {screensWide*32} {joinedPalettes}')

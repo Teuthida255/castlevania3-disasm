@@ -103,3 +103,43 @@
     jmp \1
 +
 .endm
+
+.macro copy_byte_A
+    lda \1
+    sta \2
+.endm
+
+.macro copy_word_A
+    copy_byte_A \1, \2
+    copy_byte_A \1+1, \2+1
+.endm
+
+.macro copy_byte_X
+    lda \1
+    sta \2
+.endm
+
+.macro copy_word_X
+    copy_byte_X \1, \2
+    copy_byte_X \1+1, \2+1
+.endm
+
+.macro skip
+    ; BIT trick
+    .db $2C
+.endm
+
+.macro assert
+    .if \1
+    .else
+        .print "assertion failed"
+        .if NARGS == 1
+            .print "!"
+        .else
+            .print ": "
+            .print \2
+        .endif
+        .print "\n"
+        .fail
+    .endif
+.endm

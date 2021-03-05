@@ -84,7 +84,7 @@ for i, spr in enumerate(sprites):
     with open('gfx_palette.bin', 'wb') as f:
         f.write(bytearray([attr, attr]))
 
-    os.system(f'python tools/gfx.py 2 1 {roomPalettes}')
+    os.system(f'python3 tools/gfx.py 2 1 {roomPalettes}')
     os.system(f'mv spr_new.png pieces/{i}.png')
 
 mapping = {}

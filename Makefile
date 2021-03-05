@@ -13,10 +13,10 @@ ifdef ROMHACK
 		-D SCREEN_SHAKE
 endif
 
-castlevania3.bin: code/* include/* data/* game.s
+castlevania3.bin: code/* include/* data/* game.s Makefile
 	wla-6502 ${DEFINES} -o game.o game.s
 	wlalink -s linkfile castlevania3.bin
 	rm game.o
 
 nes: castlevania3.bin
-	python tools/buildNes.py ${DEFINES}
+	python3 tools/buildNes.py ${DEFINES}

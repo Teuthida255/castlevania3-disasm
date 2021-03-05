@@ -163,7 +163,13 @@ playSound:
 	jsr setAndSaveLowerBank
 
 	pla
-	jsr b18_playSound
+	.ifdef NO_SOUND
+		nop
+		nop
+		nop
+	.else
+		jsr b18_playSound
+	.endif
 .endif
 
 soundFunc_setNotExecuting:

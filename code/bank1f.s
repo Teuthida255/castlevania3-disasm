@@ -182,6 +182,7 @@ initMMC5Regs:
 	.else
 		nop
 		nop
+		nop
 	.endif
 
 ; start with vertical mirroring
@@ -3197,7 +3198,6 @@ initExtRamAndMMC5Regs:
 .org $1ff0
 	.asc "MAST900000"
 	
-
 	.dw nmiVector
 	.dw resetVector
 	.dw irqVector

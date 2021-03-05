@@ -547,8 +547,15 @@ wHighestTileToCheckForCollisionsInVertRoom: ; $d0
 w0d1:
     ds $e0-$d1
 
+.union
 wCurrInstrumentDataAddr: ; $e0
     dw
+.nextu
+    wNSE_genVar1:
+        db
+    wNSE_genVar2:
+        db
+.endu
 
 .union
     wSoundBankJumpAddr: ; $e2
@@ -577,6 +584,10 @@ wCurrInstrumentDataAddr: ; $e0
 .nextu
     wFreqAdjustFromEnvelope: ; $e2
         db
+.nextu:
+    ; new sound engine
+    wSoundBankTempAddr4:
+        dw
 .endu
 
 .union
@@ -605,23 +616,39 @@ wCurrInstrumentDataAddr: ; $e0
         dw
 .endu
 
-wSoundNumInstrumentsMinus1: ; $ea
-    db
+.union
+    wSoundNumInstrumentsMinus1: ; $ea
+        db
 
-wSoundDataBank: ; $eb
-    db
+    wSoundDataBank: ; $eb
+        db
+.nextu
+    wSoundBankTempAddr5: ; $eb
+        dw
+.endu
 
 wSoundFrequency: ; $ec
     dw
 
-wCurrInstrumentIdx: ; $ee
-    db
+.union
+    wCurrInstrumentIdx: ; $ee
+        db
+.nextu
+    wChannelIdx:
+        db
+.nextu
+    wChannelIdx_a1:
+        db
+.endu
 
 .union
     wSoundToPlay: ; $ef
         db
 .nextu
     wDMCToPlay: ; $ef
+        db
+.nextu
+    wNSE_genVar0: ; $ef
         db
 .endu
 
@@ -960,175 +987,5 @@ wramEnd:
 .ends
 
 .ifdef EXTENDED_RAM
-;=========================================================================================
-; Bank 1
-;=========================================================================================
-
-.ramsection "RAM 1" bank 1 slot 5
-.ifdef WEAPON_SWAPPING
-    wTrevorNumSubweapons: ; $6000
-        .db
-
-    wTrevorSubweapons: ; $6000
-        dsb $10
-
-    wP2NumSubweapons: ; $6010
-        .db
-
-    wP2Subweapons: ; $6010
-        dsb $10
-
-    wNumWeaponsOffset: ; $6020
-        db
-
-    wCurrSubweaponOffset: ; $6021
-        db
-.endif
-
-.ifdef MID_STAGE_PALETTE_SWAP
-    wBackupInternalBGPalettes: ; $6022
-        dsb 9
-
-    wDimmerInternalBGPalettes: ; $602b
-        dsb 9
-
-    wBrighterInternalBGPalettes: ; $6034
-        dsb 9
-.endif
-
-.ifdef SCREEN_SHAKE
-    wOrigScreenShakeX: ; $603d
-        db
-
-    wIsShaking: ; $603e
-        db
-.endif
-
-.ifdef SOUND_ENGINE
-    wGrooveIdx:
-        db
-
-    wCurrFrameNumRows:
-        db
-
-    wCurrFrameRow:
-        db
-
-    wCurrFrameIdx:
-        db
-
-    wTicksToNextRow:
-        db
-
-    wGrooveValIdx:
-        db
-
-    wSongJustPlayed:
-        db
-
-    wNSEInstrEnded:
-        dsb NUM_CHANS
-
-    wNSEInstrPhrase:
-        dsb NUM_CHANS
-
-    wNSEInstrDataAddr_lo:
-        dsb NUM_CHANS
-
-    wNSEInstrDataAddr_hi:
-        dsb NUM_CHANS
-
-    wNSEInstrWaitRows:
-        dsb NUM_CHANS
-
-    ; not conductor
-    wNoteFreqIdx:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wNoteFreq_lo:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wNoteFreq_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wNoteLastFreq_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wNoteInstrument:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wNoteVolume:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    ; 0 - not released
-    ; 1 - just released
-    ; 2 - released
-    wNoteReleased:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wEchoBufferIdx:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wDelayedVolChangeCounter:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wDelayedVolChangeVol:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wArpeggioXY:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    ; points to all macros for instrument
-    wInstrAddr_lo:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrAddr_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    ; address here points to metadata and list of values
-    wInstrVolAddr_lo:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrVolAddr_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrVolTick:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wCurrInstrVolVal:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wInstrArpAddr_lo:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrArpAddr_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrArpTick:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wCurrInstrArpVal:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wInstrPitchAddr_lo:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrPitchAddr_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrPitchTick:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wCurrInstrPitchVal:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    wInstrDutyAddr_lo:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrDutyAddr_hi:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wInstrDutyTick:
-        dsb NUM_NON_CONDUCTOR_CHANS
-    wCurrInstrDutyVal:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    ; centered at $80
-    wSndChannelPitchOffset:
-        dsb NUM_NON_CONDUCTOR_CHANS
-
-    ; populated from $00-$5d, $60-$6f, $70-$7f
-    wEchoBuffer:
-        dsb NUM_NON_CONDUCTOR_CHANS * $10
-.endif
-.ends
-
+.include "include/wram_ext.s"
 .endif

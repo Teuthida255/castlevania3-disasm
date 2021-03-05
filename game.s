@@ -1,3 +1,4 @@
+.print "Compiling...\n"
 
 .include "include/rominfo.s"
 .include "include/constants.s"
@@ -212,12 +213,13 @@
 
 .ifdef IS_EXTENDED_ROM
 
-.ifdef SOUND_ENGINE
-.bank $20 slot 1
-.org 0
+    .ifdef SOUND_ENGINE
+        .bank $20 slot 1
+        .org 0
 
-    .include "code/newSoundEngine.s"
-.endif
+        .include "code/newSoundEngine.s"
+        .include "code/newSoundEngineData.s"
+    .endif
 
     .bank $7f slot 4
 .else
