@@ -104,9 +104,14 @@
 +
 .endm
 
-.macro copy_byte_A
-    lda \1
-    sta \2
+.macro copy_byte_immA ARGS imm, dst
+    lda #imm
+    sta dst
+.endm
+
+.macro copy_byte_A ARGS src, dst
+    lda src
+    sta dst
 .endm
 
 .macro copy_word_A
@@ -120,8 +125,10 @@
 .endm
 
 .macro copy_word_X
-    copy_byte_X \1, \2
-    copy_byte_X \1+1, \2+1
+    lda \1.w
+    sta \2
+    lda \1+1.w
+    sta \2+1
 .endm
 
 .macro skip
@@ -141,5 +148,19 @@
         .endif
         .print "\n"
         .fail
+    .endif
+.endm
+
+.define UNUSED $0
+
+.macro shift
+    .if \1 < 0
+        .rept \1
+            lsr
+        .endr
+    .else
+        .rept \1
+            asl
+        .endr
     .endif
 .endm

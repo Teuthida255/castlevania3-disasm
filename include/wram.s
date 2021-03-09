@@ -584,7 +584,7 @@ wCurrInstrumentDataAddr: ; $e0
 .nextu
     wFreqAdjustFromEnvelope: ; $e2
         db
-.nextu:
+.nextu
     ; new sound engine
     wSoundBankTempAddr4:
         dw
@@ -614,6 +614,15 @@ wCurrInstrumentDataAddr: ; $e0
 
     wSoundBankTempAddr3: ; $e8
         dw
+.nextu
+    wNSE_genVar3:
+        db
+    wNSE_genVar4:
+        db
+    wNSE_genVar5:
+        db
+    wNSE_genVar6:
+        db
 .endu
 
 .union

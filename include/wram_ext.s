@@ -66,19 +66,124 @@
     wMusChannel_RowsToNextCommand_a1:
         dsb NUM_CHANS
     
+    ; music state ---------
     wMusChannel_BasePitch:
         dsb NUM_NON_CONDUCTOR_CHANS
     
     wMusChannel_BaseVolume:
         dsb NUM_NON_CONDUCTOR_CHANS
+    
+    ; ArpXY is state that modifies how arpeggios work.
+    ; X and Y are added to certain arpeggio values.
+    ; "X" is stored in the low nibble, "Y" in the high.
+    wMusChannel_ArpXY:
+        dsb NUM_NON_CONDUCTOR_CHANS
+
+    ; some macros pack data in nibbles; this controls the.
+    wMusChannel_ReadNibble:
+        db
+    ; end music state -----
 
     ; this could be re-calculated every instrument change, but
-    ; it's most efficient to cache.
+    ; it's helpful to cache this instead.
     wMusChannel_InstrTableAddr:
         dsw NUM_NON_CONDUCTOR_CHANS
 
     ; macros
-    .include "include/newSoundEngine/wMacros.s" namespace "wMacro"
+        ;assert NSE_SIZEOF_MACRO == 3, "must match below."
+        ;.macro macro_def
+        ;    @@lo:
+        ;        db
+        ;    @@hi:
+        ;        db
+        ;    @@offset:
+        ;        db
+        ;.endm
+
+        ; sound macro fields
+        wMacro@Song:
+            dsb 3
+
+        ; phrase macros ---------------------------------
+        
+        wMacro@Sq1_Phrase:
+            dsb 3
+        wMacro@Sq2_Phrase:
+            dsb 3
+        wMacro@Tri_Phrase:
+            dsb 3
+        wMacro@Noise_Phrase:
+            dsb 3
+        wMacro@DPCM_Phrase:
+            dsb 3
+        wMacro@Sq3_Phrase:
+            dsb 3
+        wMacro@Sq4_Phrase:
+            dsb 3
+        wMacro@Conductor_Phrase:
+            dsb 3
+
+        ; music macros
+        wMacro@Sq1_Arp:
+            dsb 3
+        wMacro@Sq1_Detune:
+            dsb 3
+        wMacro@Sq1_Vol:
+            dsb 3
+        wMacro@Sq1_Duty:
+            dsb 3
+
+        wMacro@Sq2_Arp:
+            dsb 3
+        wMacro@Sq2_Detune:
+            dsb 3
+        wMacro@Sq2_Vol:
+            dsb 3
+        wMacro@Sq2_Duty:
+            dsb 3
+
+        wMacro@Tri_Arp:
+            dsb 3
+        wMacro@Tri_Detune:
+            dsb 3
+
+        wMacro@Noise_Arp: ; (also controls noise mode)
+            dsb 3
+        wMacro@Noise_Vol:
+            dsb 3
+
+        wMacro@Sq3_Arp:
+            dsb 3
+        wMacro@Sq3_Detune:
+            dsb 3
+        wMacro@Sq3_Vol:
+            dsb 3
+        wMacro@Sq3_Duty:
+            dsb 3
+
+        wMacro@Sq4_Arp:
+            dsb 3
+        wMacro@Sq4_Detune:
+            dsb 3
+        wMacro@Sq4_Vol:
+            dsb 3
+        wMacro@Sq4_Duty:
+            dsb 3
 
 .endif
 .ends
+
+.define wMacro_start wMacro@Song
+.define wMacro_phrase wMacro@Sq1_Phrase
+.define wMacro_Sq1_Base wMacro@Sq1_Arp
+.define wMacro_Sq1_End wMacro@Sq2_Arp
+.define wMacro_Sq2_Base wMacro@Sq2_Arp
+.define wMacro_Sq2_End wMacro@Tri_Arp
+.define wMacro_Tri_Base wMacro@Tri_Arp
+.define wMacro_Tri_End wMacro@Noise_Arp
+.define wMacro_Noise_Base wMacro@Noise_Arp
+.define wMacro_Noise_End wMacro@Sq3_Arp
+.define wMacro_Sq3_Base wMacro@Sq3_Arp
+.define wMacro_Sq3_End wMacro@Sq4_Arp
+.define wMacro_Sq4_Base wMacro@Sq4_Arp
+.define wMacro_Sq4_End wMacro@Sq4_Duty+3

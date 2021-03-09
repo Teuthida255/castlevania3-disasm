@@ -1,6 +1,6 @@
 .include "code/newSoundEngineMacro.s"
 
-; Channels - SQ/2, TRI, NOISE, DPCM, MMC5 PULSE 1/2, CONDUCTOR
+; Channels - SQ 1/2, TRI, NOISE, DPCM, MMC5 PULSE 1/2
 nse_initSound:
     jsr nse_silenceAllSoundChannels
 
@@ -16,43 +16,50 @@ nse_initSound:
     lda #SNDENA_MMC5_PULSE2|SNDENA_MMC5_PULSE1
     sta MMC5_STATUS.w
 
-    ; default values for music channels
-    lda #$0
-    ldx #NUM_NON_CONDUCTOR_CHANS-1
--   sta wMusChannel_BaseVolume, 0
-    dex
-    bpl -
-
     ; todo: reset structs/other control bytes
 
     ; begin playing empty song.
-    lda #MUS_SILENCEund
+    lda #MUS_SILENCE
     ; FALLTHROUGH
 
 nse_playSound:
     cmp #MUS_PRELUDE
     beq @setup_MUS_PRELUDE
     cmp #MUS_SILENCE
-    bne nse_updateSound_rts ; guaranteed
+    bne nse_updateSound_rts
 
 @setup_MUS_SILENCE:
 @setup_MUS_PRELUDE:
     ; set song to empty song
     lda #<nse_emptySong
-    sta wMacro.Song
+    sta wMacro@Song.w
     lda #>nse_emptySong
-    sta wMacro.Song+1
+    sta wMacro@Song+1.w
 
 @initMusic:
     ; default values for music
     ldx #$01
-    stx wMusTicksToNextRow_a1
-    stx wMusRowsToNextFrame_a1
+    stx wMusTicksToNextRow_a1.w
+    stx wMusRowsToNextFrame_a1.w
     ldx #SONG_MACRO_DATA_OFFSET
-    stx wMacro.Song+2 ; song start
+    stx wMacro@Song+2.w ; song start
 
     ; load channel dataset pointer
-    copy_word_X wMacro.Song, wSoundBankTempAddr2
+    copy_word_X wMacro@Song.w, wSoundBankTempAddr2.b
+
+    ; wMusChannel_ReadNibble <- 0
+    lda #$0
+    sta wMusChannel_ReadNibble.w
+
+    ; initialize music channel state
+    ; loop(channels)
+    ldy #NUM_NON_CONDUCTOR_CHANS
+-   lda #$0
+    sta wMusChannel_BaseVolume-1.w, y
+    sta wMusChannel_ArpXY-1.w, y
+    ; no need to set pitch; volume is 0.
+    dey
+    bne -
 
     ; set instrument table addresses (for caching reasons)
     ; loop(channels)
@@ -88,23 +95,25 @@ nse_updateSound:
     bne @nse_advanceChannelRow
 
 @nse_advanceFrame:
-    ; (word) wSoundBankTempAddr <- wMacro.Song
-    lda wMacro.Song
+    ; (word) wSoundBankTempAddr <- wMacro@Song
+    lda wMacro@Song.w
     sta wSoundBankTempAddr1
-    lda wMacro.Song+1
+    lda wMacro@Song+1.w
     sta wSoundBankTempAddr1+1
 
     ; get frame length from song data
-    jsr nse_getSongByte
-    sta wMusRowsToNextFrame_a1
+    jsr nse_nextSongByte
+    sta wMusRowsToNextFrame_a1.w
 
     ; loop(channels)
-    copy_byte_A #NUM_CHANS-1, wChannelIdx
--   jsr nse_getSongByte
+    copy_byte_immA NUM_CHANS-1, wChannelIdx
+-   jsr nse_nextSongByte
     jsr nse_setChannelPhrase
 
-    ; wMusChannel_RowsToNextCommand <- 0
-    copy_byte_A #$1, wMusChannel_RowsToNextCommand_a1
+    ; wMusChannel_RowsToNextCommand[channel_idx] <- 0
+    lda #$1
+    ldx wChannelIdx
+    sta wMusChannel_RowsToNextCommand_a1.w, x
     dec wChannelIdx
     bpl -
 
@@ -113,11 +122,11 @@ nse_updateSound:
 
     lda #$9 ; TODO: jsr getGrooveValue_a1
 
-    sta wMusTicksToNextRow_a1
+    sta wMusTicksToNextRow_a1.w
 
     ; loop(channels_a1)
     ldx #NUM_CHANS
--   dec wMusChannel_RowsToNextCommand_a1-1, x
+-   dec wMusChannel_RowsToNextCommand_a1-1.w, x
     bne + ; next instrument
 
     stx wChannelIdx_a1 ; store x
@@ -127,14 +136,16 @@ nse_updateSound:
     beq -
 
 @frameTick:
+    rts
 ;------------------------------------------------
 ; New Note tick
 ;------------------------------------------------
 
-    ; tick for each channel
+@mixOut:
+    ; write active mixed channel to register
     ; loop(channels)
-    copy_byte_A #NUM_NON_CONDUCTOR_CHANS, wChannelIdx
--   jsr nse_noteTick
+    copy_byte_immA NUM_NON_CONDUCTOR_CHANS-1, wChannelIdx
+-   jsr nse_mixOutTick
     dec wChannelIdx
     bpl -
     rts
@@ -147,13 +158,13 @@ nse_updateSound:
 
 ; input:
 ;  wChannelIdx = channel
-;  (word) wSoundBankTempAddr1 = wMacro.song
+;  (word) wSoundBankTempAddr1 = wMacro@song
 ; clobber: AXY
 ; result:
 ;   channel phrase <- channel.phrasetable[A]
 ;   channel phrase row <- 0
 nse_setChannelPhrase:
-    assert wMacro.phrases - wMacro.start == NSE_SIZEOF_MACRO, "this function requires phrases start at idx 1"
+    ;assert wMacro_phrases - wMacro_start == NSE_SIZEOF_MACRO, "this function requires phrases start at idx 1"
     
     ; (store input A)
     tax
@@ -170,7 +181,7 @@ nse_setChannelPhrase:
     pha
     tay
 
-    ; (word) wSoundBankTempAddr1 <- wMacro.song@channelDatasetAddr[wChannelIdx]
+    ; (word) wSoundBankTempAddr1 <- wMacro@song@channelDatasetAddr[wChannelIdx]
     lda (wSoundBankTempAddr1), y
     sta wSoundBankTempAddr2
     iny
@@ -188,88 +199,287 @@ nse_setChannelPhrase:
 
     ; (word) wSoundBankTempAddr2 <- phrase pointer
     lda (wSoundBankTempAddr2), y
-    sta wMacro.phrase, x
+    sta wMacro_phrase.w, x
     iny
     lda (wSoundBankTempAddr2), y
-    sta wMacro.phrase+1, x
+    sta wMacro_phrase+1.w, x
 
     ; channel row <- 0
     lda #$1
-    sta wMacro.phrase+2, x
+    sta wMacro_phrase+2.w, x
 
+    rts
+
+nse_mixOutTickTri:
+    rts
+
+nse_mixOutTickNoise:
+    rts
+
+nse_mixOutTickDPCM:
     rts
 
 ; input: wChannelIdx = channel
-nse_noteTick:
-    lda wChannelIdx
-    asl
-    tay
-    jsr jumpTableNoPreserveY
-; subroutines for each channel's noteTick
-@nse_noteTick_JumpTable:
-    .dw nse_noteTickSq
-    .dw nse_noteTickSq
-    .dw nse_noteTickTri
-    .dw nse_noteTickNoise
-    .dw nse_noteTickDPCM
-    .dw nse_noteTickSq
-    .dw nse_noteTickSq
+nse_mixOutTick:
+    ldx wChannelIdx
+    dex
+    dex
+    beq nse_mixOutTickTri
+    dex
+    beq nse_mixOutTickNoise
+    dex
+    beq nse_mixOutTickDPCM
+    ; fallthrough
 
-; pointers to hardware struct for each channel
-@nse_hardwareTable_lo:
-    .db <SQ1_VOL
-    .db <SQ2_VOL
-    .db ; unused
-    .db ; unused
-    .db ; unused
-    .db <MMC5_PULSE1_VOL
-    .db <MMC5_PULSE2_VOL
-
-@nse_hardwareTable_hi:
-    .db >SQ1_VOL
-    .db >SQ2_VOL
-    .db ; unused
-    .db ; unused
-    .db ; unused
-    .db >MMC5_PULSE1_VOL
-    .db >MMC5_PULSE2_VOL
-
-nse_noteTickSq:
-    ; wSoundBankTempAddr <- nse_hardwareTable[y]
+.define nibbleParity wNSE_genVar6
+nse_mixOutTickSq_volzero:
+    ; update nibble parity
     ldy wChannelIdx
-    lda nse_hardwareTable_lo, y
-    sta wSoundBankTempAddr1
-    lda nse_hardwareTable_hi, y
-    sta wSoundBankTempAddr1+1
+    lda bitIndexTable, y
 
-    ; set volume
-    lda wMusChannel_BaseVolume, y
-    ldx #$0
-    sta (wSoundBankTempAddr1, x)
+    ; start condition: nibble is 0 on even frames.
+    and wMusChannel_ReadNibble.w
+    sta nibbleParity ; on even frames, nibbleParity is 0, otherwise nonzero
 
-    ; set frequency lo
-    ldx wMusChannel_BasePitch, y
-    lda pitchFrequencies_lo, x
-    ldy #$2
-    sta (wSoundBankTempAddr1), y
+    ; toggle nibble parity for this channel
+    lda bitIndexTable, y
+    eor wMusChannel_ReadNibble.w
+    sta wMusChannel_ReadNibble.w
     
-    ; set frequency hi, but only if it has changed.
-    iny
-    lda (wSoundBankTempAddr1), y
-    and #$7 ; frequency high top 7 bits are distinct.
-    cmp pitchFrequencies_hi, x
+    ; GV0 <- wMusChannel_BaseVolume
+    lda wMusChannel_BaseVolume, y
+    sta wNSE_genVar0
+    bpl nse_mixOutTickSq@setDutyCycle ; guaranteed jump (base channel top nibble is 0)
+
+nse_mixOutTickSq:
+    ; wSoundBankTempAddr <- nse_hardwareTable[y]
+    .define hardwareOut wSoundBankTempAddr1
+    ldx wChannelIdx
+    lda _nse_hardwareTable_lo.w, x
+    sta hardwareOut.w
+    lda _nse_hardwareTable_hi.w, x
+    sta hardwareOut+1.w
+
+    ; nibbleParity set to 0/nonzero later on.
+    lda #$1
+    sta nibbleParity
+
+    ; push processor status (interrupt flags)
+    php
+
+@setVolume:
+    ; ------------------------------------------
+    ; volume
+    ; ------------------------------------------
+    lda channelMacroVolAddrTable_a2.w, x
+    sta wNSE_genVar5; store in gv5 so duty cycle can reuse this later
+    tax
+    lda wMacro_start.w, x
+    sta wNSE_genVar0 ; store current macro offset
+    dex
+    dex
+    lda wMacro_start+1.w, x
+    beq nse_mixOutTickSq_volzero ; special handling for instruments without volume macro.
+    nse_nextMacroByte_inline_precalc_abaseaddr
+    sta wNSE_genVar1 ; store macro volume multiplier
+
+    ; restore previous macro offset if nibble is even
+    ldy wChannelIdx
+    lda bitIndexTable, y
+    tay
+    inx
+    inx
+    ; start condition: nibble is 0 on even frames.
+    and wMusChannel_ReadNibble.w
+    bne +
+    sta nibbleParity ; on even frames, nibbleParity is 0.
+    lda wNSE_genVar0 ; restore previous macro offset (on even frames)
+    sta wMacro_start.w, x
+    ; shift to upper nibble if loading even macro
+    lda wNSE_genVar1
+    shift 4
+    sta wNSE_genVar1
+
++   ; wMusChannel_ReadNibble ^= (1 << channel idx)
+    tya
+    eor wMusChannel_ReadNibble.w
+    sta wMusChannel_ReadNibble.w
+
+    ; crop out lower portion of macro's nibble
+    lda wNSE_genVar1
+    and #$f0
+    sta wNSE_genVar1
+
+    ; multiply tmp volume with base volume.
+    lda wMusChannel_BaseVolume, y ; assumption: base volume upper nibble is 0.
+    eor wNSE_genVar1 ; ora, eor -- it doesn't matter
+    tax
+    lda volumeTable.w, x
+    sta wNSE_genVar0 ; genVar0 <- volume
+
+@setDutyCycle:
+    ; A <- duty cycle macro value, wNSE_genVar5 <- previous duty cycle offset value
+    ldx wNSE_genVar5
+    nse_nextMacroByte_inline_precalc wNSE_genVar5
+    ldy nibbleParity
+    bne +
+        ; even frame -- restore previous macro offset and shift up nibble.
+        shift 4
+        lda wNSE_genVar5
+        sta wMacro_start+2.w, x
+    + ; TODO: 4x-packed duty cycle values?
+    ; assumption: macro bytes 4 and 5 are 1.
+    and #$F0
+    ora wNSE_genVar0 ; OR with volume
+    pha ; store volume for later.
+
+@setFrequency:
+    ; ------------------------------------------
+    ; frequency
+    ; ------------------------------------------
+    ; get arpeggio (pitch offset)
+    ; note: y = channel idx
+
+    ; A <- next Arp Macro value
+    ldx channelMacroArpAddrTable.w, y
+    stx wNSE_genVar5 ; store offset for arp macro table
+
+    ; A <- next arpeggio macro value
+    nse_nextMacroByte_inline_precalc
+
+    sta wNSE_genVar1 ; store result
+    and #%00111111   ; crop out ArpXY values
+    .define arpValue wNSE_genVar0
+    sta arpValue
+
+    ; optimization: skip altogether if macro value is 0 (i.e. there is no macro).
+    beq @endArpXYAdjustCLC
+
+    ; apply ArpXY to arpeggio offset
+@ArpXYAdjust:
+    bit wNSE_genVar1 ; N <- ArpX, Z <- ArpY
+    bvs @ArpY_UnkX ; br. ArpY
+    bpl @ArpNegative ; br. ~ArpX
+@ArpX:
+    lda wMusChannel_ArpXY, y
+    and #$0f ; get just the X nibble
+    clc
+    adc arpValue
+    bcc @endArpXYAdjust ; guaranteed -- arpValue is the sum of two nibbles, so it cannot exceed $ff.
+
+@ArpY_UnkX:
+    bmi @endArpXYAdjustCLC:
+@ArpY:
+    lda wMusChannel_ArpXY, y
+    shift -4
+    clc
+    adc arpValue
+    bcc @endArpXYAdjust ; guaranteed -- as above.
+
+@ArpNegative:
+    ; negative arp value.
+    sec
+    lda #$00
+    sbc arpValue
+
+@endArpXYAdjustCLC:
+    clc
+@endArpXYAdjust:
+    ; assumption: (-C)
+    ; Y = channel idx
+    ; set frequency lo
+    lda wMusChannel_BasePitch.w, y
+    adc arpValue ; (-C still)
+    tax
+    lda pitchFrequencies_lo.w, x
+    sta wSoundFrequency
+    lda pitchFrequencies_hi.w, x
+    sta wSoundFrequency+1
+
+    ; detune
+    ; (-C from above)
+    ; X <- macro table offset for detune
+    lda #$3
+    adc wNSEGenVar5 ; macro table offset for Arp
+    tax
+    lda wMacro_start+2.w, x
+    sta wNSE_genVar0 ; store previous macro idx for later
+
+    ; A <- next detune value
+    lda wMacroStart.w+1, x ; skip if macro is zero.
+    beq @doneDetune
+    nse_nextMacroByte_inline_precalc_abaseaddr
+
+    ; odd/even detune macro value
+    ldy nibbleParity
+    bne +
+    ; even frame -- shift nibble down
+    shift -4
+    tay
+    
+    ; restore previous macro offset
+    lda wNSE_genVar0
+    sta wMacroStart+2, x
+
+    tya ; A <- high nibble (shifted to low nibble)
++   and #$0f
+
+    ; wSoundBankTempAddr2 is macro base address; the byte before it is the base detune offset.
+    ldy #$0
+    dec wSoundBankTempAddr2.w
+    clc
+    adc (wSoundBankTempAddr2.w), y
+    bpl @subtractFrequency
+@addFrequency:
+    ; add detune to frequency.
+    and #$7F ; remove sign byte
+    clc
+    adc wSoundFrequency.w
+    sta wSoundFrequency.w
+    bcc @doneDetune
+    inc wSoundFrequency+1.w
+    bpl @doneDetune ; guaranteed
+
+@subtractFrequency:
+    ; add sign byte
+    ora #$80
+    clc
+    adc 
+    adc wSoundFrequency.w
+    sta wSoundFrequency.w
+    bcs @doneDetune
+    dec wSoundFrequency+1.w
+
+@doneDetune:
+
+@writeRegisters:
+    ldy #$0
+    lda #%00110000
+
+    ; CRITICAL SECTION ------------------------------------------
+    ; prevent interrupts during this critical section
+
+    ; set volume to zero in case APU update occurs during this period
+    sei ; disable interrupts
+    sta (hardwareOut), y
+
+    ; write frequency to hardware out, but only if high value has changed.
+    ldy #$3
+    lda (hardwareOut), y
+    and #%00000111 ; frequency high only 3 bits
+    cmp wSoundFrequency+1
     beq +
-    lda pitchFrequencies_hi, x
-    sta (wSoundBankTempAddr1), y
-  + rts
+        lda wSoundFrequency+1
+        sta (hardwareOut), y
+        dey
+        lda wSoundFrequency
+        sta (hardwareOut), y
+  + pla ; retrieve volume.
+    ldy #$0
+    sta (hardwareOut), y
+    plp ; restore interrupt status
+    ; END CRITICAL SECTION --------------------------------------
 
-nse_noteTickTri:
-    rts
-
-nse_noteTickNoise:
-    rts
-
-nse_noteTickDPCM:
     rts
 
 nse_silenceAllSoundChannels:
@@ -282,184 +492,252 @@ nse_silenceAllSoundChannels:
     sta MMC5_PULSE2_VOL.w
     rts
 
+; pointers to hardware struct for each channel
+_nse_hardwareTable_lo:
+    .db <SQ1_VOL
+    .db <SQ2_VOL
+    .db UNUSED
+    .db UNUSED
+    .db UNUSED
+    .db <MMC5_PULSE1_VOL
+    .db <MMC5_PULSE2_VOL
+
+_nse_hardwareTable_hi:
+    .db >SQ1_VOL
+    .db >SQ2_VOL
+    .db UNUSED
+    .db UNUSED
+    .db UNUSED
+    .db >MMC5_PULSE1_VOL
+    .db >MMC5_PULSE2_VOL
+
 pitchFrequencies_hi:
-    .dw $07 ; A-0
-    .dw $07 ; A#0
-    .dw $07 ; B-0
-    .dw $06 ; C-1
-    .dw $06 ; C#1
-    .dw $05 ; D-1
-    .dw $05 ; D#1
-    .dw $05 ; E-1
-    .dw $04 ; F-1
-    .dw $04 ; F#1
-    .dw $04 ; G-1
-    .dw $04 ; G#1
-    .dw $03 ; A-1
-    .dw $03 ; A#1
-    .dw $03 ; B-1
-    .dw $03 ; C-2
-    .dw $03 ; C#2
-    .dw $02 ; D-2
-    .dw $02 ; D#2
-    .dw $02 ; E-2
-    .dw $02 ; F-2
-    .dw $02 ; F#2
-    .dw $02 ; G-2
-    .dw $02 ; G#2
-    .dw $01 ; A-2
-    .dw $01 ; A#2
-    .dw $01 ; B-2
-    .dw $01 ; C-3
-    .dw $01 ; C#3
-    .dw $01 ; D-3
-    .dw $01 ; D#3
-    .dw $01 ; E-3
-    .dw $01 ; F-3
-    .dw $01 ; F#3
-    .dw $01 ; G-3
-    .dw $01 ; G#3
-    .dw $00 ; A-3
-    .dw $00 ; A#3
-    .dw $00 ; B-3
-    .dw $00 ; C-4
-    .dw $00 ; C#4
-    .dw $00 ; D-4
-    .dw $00 ; D#4
-    .dw $00 ; E-4
-    .dw $00 ; F-4
-    .dw $00 ; F#4
-    .dw $00 ; G-4
-    .dw $00 ; G#4
-    .dw $00 ; A-4
-    .dw $00 ; A#4
-    .dw $00 ; B-4
-    .dw $00 ; C-5
-    .dw $00 ; C#5
-    .dw $00 ; D-5
-    .dw $00 ; D#5
-    .dw $00 ; E-5
-    .dw $00 ; F-5
-    .dw $00 ; F#5
-    .dw $00 ; G-5
-    .dw $00 ; G#5
-    .dw $00 ; A-5
-    .dw $00 ; A#5
-    .dw $00 ; B-5
-    .dw $00 ; C-6
-    .dw $00 ; C#6
-    .dw $00 ; D-6
-    .dw $00 ; D#6
-    .dw $00 ; E-6
-    .dw $00 ; F-6
-    .dw $00 ; F#6
-    .dw $00 ; G-6
-    .dw $00 ; G#6
-    .dw $00 ; A-6
-    .dw $00 ; A#6
-    .dw $00 ; B-6
-    .dw $00 ; C-7
-    .dw $00 ; C#7
-    .dw $00 ; D-7
+    .db $07 ; A-0
+    .db $07 ; A#0
+    .db $07 ; B-0
+    .db $06 ; C-1
+    .db $06 ; C#1
+    .db $05 ; D-1
+    .db $05 ; D#1
+    .db $05 ; E-1
+    .db $04 ; F-1
+    .db $04 ; F#1
+    .db $04 ; G-1
+    .db $04 ; G#1
+    .db $03 ; A-1
+    .db $03 ; A#1
+    .db $03 ; B-1
+    .db $03 ; C-2
+    .db $03 ; C#2
+    .db $02 ; D-2
+    .db $02 ; D#2
+    .db $02 ; E-2
+    .db $02 ; F-2
+    .db $02 ; F#2
+    .db $02 ; G-2
+    .db $02 ; G#2
+    .db $01 ; A-2
+    .db $01 ; A#2
+    .db $01 ; B-2
+    .db $01 ; C-3
+    .db $01 ; C#3
+    .db $01 ; D-3
+    .db $01 ; D#3
+    .db $01 ; E-3
+    .db $01 ; F-3
+    .db $01 ; F#3
+    .db $01 ; G-3
+    .db $01 ; G#3
+    .db $00 ; A-3
+    .db $00 ; A#3
+    .db $00 ; B-3
+    .db $00 ; C-4
+    .db $00 ; C#4
+    .db $00 ; D-4
+    .db $00 ; D#4
+    .db $00 ; E-4
+    .db $00 ; F-4
+    .db $00 ; F#4
+    .db $00 ; G-4
+    .db $00 ; G#4
+    .db $00 ; A-4
+    .db $00 ; A#4
+    .db $00 ; B-4
+    .db $00 ; C-5
+    .db $00 ; C#5
+    .db $00 ; D-5
+    .db $00 ; D#5
+    .db $00 ; E-5
+    .db $00 ; F-5
+    .db $00 ; F#5
+    .db $00 ; G-5
+    .db $00 ; G#5
+    .db $00 ; A-5
+    .db $00 ; A#5
+    .db $00 ; B-5
+    .db $00 ; C-6
+    .db $00 ; C#6
+    .db $00 ; D-6
+    .db $00 ; D#6
+    .db $00 ; E-6
+    .db $00 ; F-6
+    .db $00 ; F#6
+    .db $00 ; G-6
+    .db $00 ; G#6
+    .db $00 ; A-6
+    .db $00 ; A#6
+    .db $00 ; B-6
+    .db $00 ; C-7
+    .db $00 ; C#7
+    .db $00 ; D-7
 
 pitchFrequencies_lo:
     ; detuned from 440 Hz specifically for AoC.
     
-    .dw $DC ; A-0
-    .dw $6B ; A#0
-    .dw $00 ; B-0
-    .dw $9C ; C-1
-    .dw $ED ; C#1
-    .dw $E3 ; D-1
-    .dw $8E ; D#1
-    .dw $3E ; E-1
-    .dw $F3 ; F-1
-    .dw $AC ; F#1
-    .dw $69 ; G-1
-    .dw $29 ; G#1
-    .dw $ED ; A-1
-    .dw $B5 ; A#1
-    .dw $80 ; B-1
-    .dw $4D ; C-2
-    .dw $1E ; C#2
-    .dw $F1 ; D-2
-    .dw $C7 ; D#2
-    .dw $9F ; E-2
-    .dw $79 ; F-2
-    .dw $55 ; F#2
-    .dw $34 ; G-2
-    .dw $14 ; G#2
-    .dw $F6 ; A-2
-    .dw $DA ; A#2
-    .dw $BF ; B-2
-    .dw $A6 ; C-3
-    .dw $8E ; C#3
-    .dw $78 ; D-3
-    .dw $63 ; D#3
-    .dw $4F ; E-3
-    .dw $3C ; F-3
-    .dw $2A ; F#3
-    .dw $19 ; G-3
-    .dw $0A ; G#3
-    .dw $FB ; A-3
-    .dw $EC ; A#3
-    .dw $DF ; B-3
-    .dw $D8 ; C-4
-    .dw $C7 ; C#4
-    .dw $BB ; D-4
-    .dw $B1 ; D#4
-    .dw $A7 ; E-4
-    .dw $9D ; F-4
-    .dw $95 ; F#4
-    .dw $8C ; G-4
-    .dw $84 ; G#4
-    .dw $7D ; A-4
-    .dw $76 ; A#4
-    .dw $6F ; B-4
-    .dw $69 ; C-5
-    .dw $63 ; C#5
-    .dw $6D ; D-5
-    .dw $58 ; D#5
-    .dw $53 ; E-5
-    .dw $4E ; F-5
-    .dw $4A ; F#5
-    .dw $46 ; G-5
-    .dw $42 ; G#5
-    .dw $3E ; A-5
-    .dw $3A ; A#5
-    .dw $37 ; B-5
-    .dw $34 ; C-6
-    .dw $31 ; C#6
-    .dw $2E ; D-6
-    .dw $2B ; D#6
-    .dw $29 ; E-6
-    .dw $27 ; F-6
-    .dw $24 ; F#6
-    .dw $22 ; G-6
-    .dw $20 ; G#6
-    .dw $1E ; A-6
-    .dw $1D ; A#6
-    .dw $1B ; B-6
-    .dw $19 ; C-7
-    .dw $18 ; C#7
+    .db $DC ; A-0
+    .db $6B ; A#0
+    .db $00 ; B-0
+    .db $9C ; C-1
+    .db $ED ; C#1
+    .db $E3 ; D-1
+    .db $8E ; D#1
+    .db $3E ; E-1
+    .db $F3 ; F-1
+    .db $AC ; F#1
+    .db $69 ; G-1
+    .db $29 ; G#1
+    .db $ED ; A-1
+    .db $B5 ; A#1
+    .db $80 ; B-1
+    .db $4D ; C-2
+    .db $1E ; C#2
+    .db $F1 ; D-2
+    .db $C7 ; D#2
+    .db $9F ; E-2
+    .db $79 ; F-2
+    .db $55 ; F#2
+    .db $34 ; G-2
+    .db $14 ; G#2
+    .db $F6 ; A-2
+    .db $DA ; A#2
+    .db $BF ; B-2
+    .db $A6 ; C-3
+    .db $8E ; C#3
+    .db $78 ; D-3
+    .db $63 ; D#3
+    .db $4F ; E-3
+    .db $3C ; F-3
+    .db $2A ; F#3
+    .db $19 ; G-3
+    .db $0A ; G#3
+    .db $FB ; A-3
+    .db $EC ; A#3
+    .db $DF ; B-3
+    .db $D8 ; C-4
+    .db $C7 ; C#4
+    .db $BB ; D-4
+    .db $B1 ; D#4
+    .db $A7 ; E-4
+    .db $9D ; F-4
+    .db $95 ; F#4
+    .db $8C ; G-4
+    .db $84 ; G#4
+    .db $7D ; A-4
+    .db $76 ; A#4
+    .db $6F ; B-4
+    .db $69 ; C-5
+    .db $63 ; C#5
+    .db $6D ; D-5
+    .db $58 ; D#5
+    .db $53 ; E-5
+    .db $4E ; F-5
+    .db $4A ; F#5
+    .db $46 ; G-5
+    .db $42 ; G#5
+    .db $3E ; A-5
+    .db $3A ; A#5
+    .db $37 ; B-5
+    .db $34 ; C-6
+    .db $31 ; C#6
+    .db $2E ; D-6
+    .db $2B ; D#6
+    .db $29 ; E-6
+    .db $27 ; F-6
+    .db $24 ; F#6
+    .db $22 ; G-6
+    .db $20 ; G#6
+    .db $1E ; A-6
+    .db $1D ; A#6
+    .db $1B ; B-6
+    .db $19 ; C-7
+    .db $18 ; C#7
     .dw $17 ; D-7
 
 nse_emptySong:
     .db SONG_MACRO_DATA_OFFSET
-    .dsw $10, @nse_emptyMusicPatternLoc-$10
+    .dsw $10, @nse_emptyChannelData ; channel data table
     .db $10 ; use the first pattern (empty music pattern)
-    .db 0
-@nse_emptyMusicPatternLoc:
-    .dw nse_silentMusicPattern
+    .db 0 ; end of loop
+
+nse_emptyChannelData:
+@nse_nullTablePtr:
+.rept $10
+    .dw nullTable
+.endr
+@nse_silentPhrasePtr:
+    .dw nse_silentPhrase
+
     
-
-nse_silentMusicPattern:
-    .db 3
-    .db 4F
-
-nse_emptyMusicPattern:
-; this pattern loops and does nothing for any music or sfx pattern
+nse_silentPhrase:
     .db 1
-    .db 4E
-    .db 4E
+    .db $5F
     .db 0
+
+channelMacroVolAddrTable_a2:
+    .db wMacro@Sq1_Vol-wMacro_start+2
+    .db wMacro@Sq1_Vol-wMacro_start+2
+    .db UNUSED
+    .db wMacro@Noise_Vol-wMacro_start+2
+    .db UNUSED
+    .db wMacro@Sq3_Vol-wMacro_start+2
+    .db wMacro@Sq4_Vol-wMacro_start+2
+channelMacroArpAddrTable:
+channelMacroBaseAddrTable:
+    .db wMacro_Sq1_Base-wMacro_start
+    .db wMacro_Sq1_Base-wMacro_start
+    .db wMacro_Tri_Base-wMacro_start
+    .db wMacro_Noise_Base-wMacro_start
+    .db UNUSED
+    .db wMacro_Sq3_Base-wMacro_start
+    .db wMacro_Sq4_Base-wMacro_start
+channelMacroEndAddrTable:
+    .db wMacro_Sq1_End-wMacro_start
+    .db wMacro_Sq2_End-wMacro_start
+    .db wMacro_Tri_End-wMacro_start
+    .db wMacro_Noise_End-wMacro_start
+    .db UNUSED
+    .db wMacro_Sq3_End-wMacro_start
+    .db wMacro_Sq4_End-wMacro_start
+bitIndexTable:
+    .db $01 $02 $04 $08 $10 $20 $40 $80
+
+volumeTable:
+    .db     15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
+    .db     14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1, 0
+    .db     13,12,11,10, 9, 8, 7, 6, 6, 5, 4, 3, 2, 1, 1, 0
+    .db     12,11,10, 9, 8, 8, 7, 6, 5, 4, 4, 3, 2, 1, 1, 0
+    .db     11,10, 9, 8, 8, 7, 6, 5, 5, 4, 3, 2, 2, 1, 1, 0
+    .db     10, 9, 8, 8, 7, 6, 6, 5, 4, 4, 3, 2, 2, 1, 1, 0
+    .db      9, 8, 7, 7, 6, 6, 5, 4, 4, 3, 3, 2, 1, 1, 1, 0
+    .db      8, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, 0
+    .db      7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, 1, 0
+    .db      6, 5, 5, 4, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 1, 0
+    .db      5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 0
+    .db      4, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 0
+    .db      3, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
+    .db      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
+    .db      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+nullTable: ; 32 zeros in a row (also part of volume table above)
+    .rept 32
+    .db      0
+    .endr
