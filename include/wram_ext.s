@@ -68,16 +68,16 @@
     
     ; music state ---------
     wMusChannel_BasePitch:
-        dsb NUM_NON_CONDUCTOR_CHANS
+        dsb NUM_CHANS
     
     wMusChannel_BaseVolume:
-        dsb NUM_NON_CONDUCTOR_CHANS
+        dsb NUM_CHANS
     
     ; ArpXY is state that modifies how arpeggios work.
     ; X and Y are added to certain arpeggio values.
     ; "X" is stored in the low nibble, "Y" in the high.
     wMusChannel_ArpXY:
-        dsb NUM_NON_CONDUCTOR_CHANS
+        dsb NUM_CHANS
 
     ; some macros pack data in nibbles; this controls the.
     wMusChannel_ReadNibble:
@@ -87,7 +87,7 @@
     ; this could be re-calculated every instrument change, but
     ; it's helpful to cache this instead.
     wMusChannel_InstrTableAddr:
-        dsw NUM_NON_CONDUCTOR_CHANS
+        dsw NUM_CHANS
 
     ; macros
         ;assert NSE_SIZEOF_MACRO == 3, "must match below."
@@ -119,8 +119,6 @@
         wMacro@Sq3_Phrase:
             dsb 3
         wMacro@Sq4_Phrase:
-            dsb 3
-        wMacro@Conductor_Phrase:
             dsb 3
 
         ; music macros

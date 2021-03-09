@@ -72,9 +72,7 @@
     .define NSE_DPCM $04
     .define NSE_PULSE1 $05
     .define NSE_PULSE2 $06
-    .define NSE_CONDUCTOR $07
-    .define NUM_NON_CONDUCTOR_CHANS $07
-    .define NUM_CHANS $08
+    .define NUM_CHANS $07
 
     .define NSE_SIZEOF_MACRO 3
     .define INSTRUMENTS_PER_CHANNEL $10

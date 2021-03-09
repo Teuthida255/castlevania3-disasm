@@ -155,7 +155,7 @@
 
 .macro shift
     .if \1 < 0
-        .rept \1
+        .rept -\1
             lsr
         .endr
     .else

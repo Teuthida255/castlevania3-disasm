@@ -9,7 +9,7 @@
         sta wSoundBankTempAddr2+1
         lda wMacro_start.w, X
         sta wSoundBankTempAddr2
-    _macro_loop\@:
+    @@@_macro_loop\@:
         lda wMacro_start+2.w, X
         .if NARGS == 1
             sta \1
@@ -17,27 +17,27 @@
         inc wMacro_start+2.w, X
         tay
         lda (wSoundBankTempAddr2), Y
-        bne _macro_end\@
+        bne @@@_macro_end\@
 
         ; only if macro lookup fails
         ; A = 0
         tay
         lda (wSoundBankTempAddr2), Y
         sta wMacro_start+2.w, X
-        beq _macro_loop\@ ; guaranteed
+        beq @@@_macro_loop\@ ; guaranteed
 
-    _macro_end\@:
+    @@@_macro_end\@:
 .endm
 
 .macro nse_nextMacroByte_inline_precalc ; A <- macro X/3; Y clobbered; X unaffected
         lda wMacro_start+1.w, X
-        beq _macro_end_p\@ ; if macro address is 0, skip.
+        beq @@@_macro_end_p\@ ; if macro address is 0, skip.
         .if NARGS == 1
             nse_nextMacroByte_inline_precalc_abaseaddr \1
         .else
             nse_nextMacroByte_inline_precalc_abaseaddr
         .endif
-        _macro_end_p\@:
+        @@@_macro_end_p\@:
 .endm
 
 .macro nse_nextMacroByte_inline ; A <- *macro[A]++; X <- 3A; Y clobbered

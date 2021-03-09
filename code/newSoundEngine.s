@@ -53,7 +53,7 @@ nse_playSound:
 
     ; initialize music channel state
     ; loop(channels)
-    ldy #NUM_NON_CONDUCTOR_CHANS
+    ldy #NUM_CHANS
 -   lda #$0
     sta wMusChannel_BaseVolume-1.w, y
     sta wMusChannel_ArpXY-1.w, y
@@ -63,7 +63,7 @@ nse_playSound:
 
     ; set instrument table addresses (for caching reasons)
     ; loop(channels)
-    ldy #(NUM_NON_CONDUCTOR_CHANS*2 + 1)
+    ldy #(NUM_CHANS*2 + 1)
 
 -   ; wMusChannel_InstrTableAddr[channel] <- song.channelDatasetAddr[channel]
     lda (wSoundBankTempAddr2), Y
@@ -144,7 +144,7 @@ nse_updateSound:
 @mixOut:
     ; write active mixed channel to register
     ; loop(channels)
-    copy_byte_immA NUM_NON_CONDUCTOR_CHANS-1, wChannelIdx
+    copy_byte_immA NUM_CHANS-1, wChannelIdx
 -   jsr nse_mixOutTick
     dec wChannelIdx
     bpl -
@@ -368,7 +368,7 @@ nse_mixOutTickSq:
     bcc @endArpXYAdjust ; guaranteed -- arpValue is the sum of two nibbles, so it cannot exceed $ff.
 
 @ArpY_UnkX:
-    bmi @endArpXYAdjustCLC:
+    bmi @endArpXYAdjustCLC
 @ArpY:
     lda wMusChannel_ArpXY, y
     shift -4
@@ -400,13 +400,13 @@ nse_mixOutTickSq:
     ; (-C from above)
     ; X <- macro table offset for detune
     lda #$3
-    adc wNSEGenVar5 ; macro table offset for Arp
+    adc wNSE_genVar5 ; macro table offset for Arp
     tax
     lda wMacro_start+2.w, x
     sta wNSE_genVar0 ; store previous macro idx for later
 
     ; A <- next detune value
-    lda wMacroStart.w+1, x ; skip if macro is zero.
+    lda wMacro_start.w+1, x ; skip if macro is zero.
     beq @doneDetune
     nse_nextMacroByte_inline_precalc_abaseaddr
 
@@ -419,16 +419,16 @@ nse_mixOutTickSq:
     
     ; restore previous macro offset
     lda wNSE_genVar0
-    sta wMacroStart+2, x
+    sta wMacro_start+2.w, x
 
     tya ; A <- high nibble (shifted to low nibble)
 +   and #$0f
 
     ; wSoundBankTempAddr2 is macro base address; the byte before it is the base detune offset.
     ldy #$0
-    dec wSoundBankTempAddr2.w
+    dec wSoundBankTempAddr2
     clc
-    adc (wSoundBankTempAddr2.w), y
+    adc (wSoundBankTempAddr2), y
     bpl @subtractFrequency
 @addFrequency:
     ; add detune to frequency.
@@ -444,7 +444,6 @@ nse_mixOutTickSq:
     ; add sign byte
     ora #$80
     clc
-    adc 
     adc wSoundFrequency.w
     sta wSoundFrequency.w
     bcs @doneDetune
@@ -679,7 +678,7 @@ nse_emptySong:
     .db $10 ; use the first pattern (empty music pattern)
     .db 0 ; end of loop
 
-nse_emptyChannelData:
+@nse_emptyChannelData:
 @nse_nullTablePtr:
 .rept $10
     .dw nullTable

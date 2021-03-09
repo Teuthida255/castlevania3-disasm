@@ -1,7 +1,5 @@
 nse_execDPCM:
     rts
-nse_execConductor:
-    rts
 
 nse_execSq_SetVolume:
     lda wChannelIdx_a1
@@ -34,8 +32,6 @@ nse_execChannelCommands_A:
 
     cpx #(NSE_DPCM+1)*3
     beq nse_execDPCM
-    cpx #(NSE_CONDUCTOR+1)*3
-    beq nse_execConductor
     bne nse_execSqTriNoise ; guaranteed jump
 
 ; preconditions:
