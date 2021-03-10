@@ -515,6 +515,13 @@ nse_mixOutTickSq:
     adc arpValue
     bcc @endArpXYAdjust ; guaranteed -- as above.
 
+; (unrelated to arpeggios)
+; this is used when no detune macro is specified
+@noDetuneMacro:
+    lda #$80
+    clc
+    bne @_adcFrequencyLo ; guaranteed
+
 @ArpNegative:
     ; negative arp value.
     sec
@@ -528,7 +535,7 @@ nse_mixOutTickSq:
     ; Y = channel idx
     ; set frequency lo
     lda wMusChannel_BasePitch.w, y
-    adc arpValue ; (-C still)
+    adc arpValue ; (results in -C)
     tax
 @lookupFrequencyX:
     lda pitchFrequencies_lo.w, x
@@ -536,6 +543,7 @@ nse_mixOutTickSq:
     lda pitchFrequencies_hi.w, x
     sta wSoundFrequency+1
 
+@detune:
     ; detune
     ; (-C from above)
     ; X <- macro table offset for detune
@@ -547,7 +555,7 @@ nse_mixOutTickSq:
 
     ; A <- next detune value
     lda wMacro_start.w+1, x ; skip if macro is zero.
-    beq @doneDetune
+    beq @noDetuneMacro
     nse_nextMacroByte_inline_precalc_abaseaddr
 
     ; odd/even detune macro value
@@ -564,35 +572,54 @@ nse_mixOutTickSq:
     tya ; A <- high nibble (shifted to low nibble)
 +   and #$0f
 
-    ; wSoundBankTempAddr2 is macro base address; the byte before it is the base detune offset.
+@sumDetune:
+    ; add fine detune from macro
+    ldx wChannelIdx
     ldy #$0
-    dec wSoundBankTempAddr2
-    clc
-    adc (wSoundBankTempAddr2), y
-    bpl @subtractFrequency
-@addFrequency:
-    ; add detune to frequency.
-    and #$7F ; remove sign byte
     clc
     adc wSoundFrequency.w
     sta wSoundFrequency.w
-    bcc @doneDetune
-    inc wSoundFrequency+1.w
-    bpl @doneDetune ; guaranteed
+    bcc +
+    inc wSoundFrequency.w+1
+    clc
++   ; (-C)
 
-@subtractFrequency:
-    ; add sign byte
-    ora #$80
+    ; wSoundBankTempAddr2 is macro base address; 3 bytes before it is the base detune offset.
+    ; add base detune
+    
+    ; A <- <wSoundBankTempAddr2-3
+    ; assumption: <wSoundBankTempAddr2 >= 3
+    lda wSoundBankTempAddr2
+    adc #$FD ; -3
+    sta wSoundBankTempAddr2
     clc
+    lda (wSoundBankTempAddr2), y
+@_adcFrequencyLo:
+    ; (requires C-)
     adc wSoundFrequency.w
     sta wSoundFrequency.w
-    bcs @doneDetune
-    dec wSoundFrequency+1.w
+    bcc + ; instead of adding 1, just skip decrementing frequency hi.
+@decrementFrequencyHi:
+    ; we have to decrement frequency hi because we are adding two "reverse-signed"
+    ; values (i.e. values where $80 represents zero) as though they were unsigned.
+    inc wSoundFrequency.w+1
+    clc
++
+
+@addBaseDetune:
+    ; (-C)
+    ; channel base detune
+    lda wMusChannel_BaseDetune.w, x
+    adc wSoundFrequency.w
+    sta wSoundFrequency.w
+    bcc +
+    inc wSoundFrequency.w+1
++   
 
 @doneDetune:
 
 @writeRegisters:
-    ldx wChannelIdx
+    ; x = channel idx
     ldy #$0
     lda #%00110000
     cpx TRI_LINEAR
@@ -605,16 +632,21 @@ nse_mixOutTickSq:
     beq + ; (branch if triangle channel)
         sta (hardwareOut), y
 
-+   ; write frequency to hardware out, but only if high value has changed.
-    ldy #$3
++   ; write frequency to hardware out, but don't change high value if high value hasn't changed
+    ; (a side effect of writing to the high value is that it resets the phase)
+
+    ; write lo (fine) value of frequency
+    ldy #$2
+    lda wSoundFrequency
+    sta (hardwareOut), y
+
+    ; possibly write hi (course) value of frequency
+    iny
     lda (hardwareOut), y
     and #%00000111 ; frequency high only 3 bits
     cmp wSoundFrequency+1
     beq +
         lda wSoundFrequency+1
-        sta (hardwareOut), y
-        dey
-        lda wSoundFrequency
         sta (hardwareOut), y
   + pla ; retrieve volume.
     ldy #$0

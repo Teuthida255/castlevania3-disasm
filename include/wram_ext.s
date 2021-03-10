@@ -76,6 +76,10 @@
     wMusChannel_BaseVolume:
         dsb NUM_CHANS
     
+    ; signed value centred at 80, indicating detune for channel
+    wMusChannel_BaseDetune:
+        dsb NUM_CHANS
+
     ; ArpXY is state that modifies how arpeggios work.
     ; X and Y are added to certain arpeggio values.
     ; "X" is stored in the low nibble, "Y" in the high.
