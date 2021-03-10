@@ -70,6 +70,9 @@
     wMusChannel_BasePitch:
         dsb NUM_CHANS
     
+    ; value between 0 and F for square and noise channels
+    ; Triangle: nonzero if on, $0 otherwise.
+    ; DPCM: hijacked by triangle
     wMusChannel_BaseVolume:
         dsb NUM_CHANS
     
@@ -144,6 +147,8 @@
             dsb 3
         wMacro@Tri_Detune:
             dsb 3
+        wMacro@Tri_Length: ; is treated as Tri_State (if odd)
+            dsb 3
 
         wMacro@Noise_Arp: ; (also controls noise mode)
             dsb 3
@@ -186,3 +191,6 @@
 .define wMacro_Sq4_End wMacro@Sq4_Duty+3
 .define wMacro_Chan_Base wMacro_Sq1_Base
 .define wMacro_end wMacro_Sq4_End
+
+; bit 6 stores previous value of triangle unmute
+.define wMusTri_Prev wMusChannel_BaseVolume+NSE_DPCM

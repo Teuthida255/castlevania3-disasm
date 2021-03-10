@@ -214,18 +214,27 @@ nse_setChannelPhrase:
 
     rts
 
-nse_mixOutTickTri:
-    rts
+.define hardwareOut wSoundBankTempAddr1
 
 nse_mixOutTickNoise:
-    rts
-
 nse_mixOutTickDPCM:
+    plp
     rts
 
 ; input: wChannelIdx = channel
 nse_mixOutTick:
+    ; push processor status (interrupt flags)
+    php
+
+    ; X <- channel idx
+    ; (word) hardwareOut <- base of output registers.
     ldx wChannelIdx
+    lda _nse_hardwareTable_lo.w, x
+    sta hardwareOut.w
+    lda _nse_hardwareTable_hi.w, x
+    sta hardwareOut+1.w
+
+    ; dispatch depending on channel
     dex
     dex
     beq nse_mixOutTickTri
@@ -233,9 +242,120 @@ nse_mixOutTick:
     beq nse_mixOutTickNoise
     dex
     beq nse_mixOutTickDPCM
-    ; fallthrough
+    jmp nse_mixOutTickSq
 
 .define nibbleParity wNSE_genVar6
+
+nse_mixOutTickTri_State:
+    ; set up fast length macro access
+    asl
+    sta wSoundBankTempAddr2+1
+    lda wMacro@Tri_Length.w
+    sta wSoundBankTempAddr2
+
+    ; GV0 <- loop point
+    ldy #$0
+    lda (wSoundBankTempAddr2), y
+    sta wNSE_genVar0
+
+    ; GV1 <- 0
+    ; Y <- 1
+    sty wNSE_genVar1
+    iny
+
+@loop_start:
+    cpy wNSE_genVar0
+    bne +
+
+    ; Y = loop point
+    lda wNSE_genVar1
+    sta wNSE_genVar2
+    
++   lda (wSoundBankTempAddr2), y
+    bne +
+    ; macro loop point
+    lda wNSE_genVar2
+    sta wMacro@Tri_Length+2.w
+    ldy wNSE_genVar0
+    lda (wSoundBankTempAddr2), y
+    jmp @post_loop ; guaranteed -- loop point cannot be 0.
++   sta wNSE_genVar5
+    and #$7F ; mask to bottom 7 bits
+    sta wNSE_genVar4
+    lda wNSE_genVar1
+    clc ; subtract 1 more than gv4
+    sbc wNSE_genVar4
+    sta wNSE_genVar1
+    bpl @loop_start
+
+    ; increment timer
+    inc wMacro@Tri_Length+2.w
+
+    ; load (un)mute value of final macro byte
+    lda wNSE_genVar5
+
+@post_loop:
+    bpl nse_mixOutTickTri@setUnmuted
+    bmi nse_mixOutTickTri@setMuted ; guaranteed
+
+nse_mixOutTickTri:
+    ; update parity
+    lda #$0
+    sta nibbleParity
+    lda wMusChannel_ReadNibble.w
+    eor #(1 << NSE_TRI)
+    sta wMusChannel_ReadNibble.w
+    and #(1 << NSE_TRI)
+    bne +
+    inc nibbleParity
++    
+
+    asl wMusTri_Prev.w ; bit 7 <- bit 6
+    ; if volume is 0, skip right over the length/state macro stuff.
+    lda wMusChannel_BaseVolume+NSE_TRI.w
+    beq @setMuted
+
+    ; if macro address is odd, this is a State macro; otherwise, Length.
+    lda wMacro@Tri_Length+1.w
+    beq @setUnmuted ; no state/length macro -- set unmuted
+    lsr
+    bcs nse_mixOutTickTri_State
+
+@LengthMacro:
+    ; read length "macro" -- actually just a single byte.
+    asl
+    sta wSoundBankTempAddr2+1
+    lda wMacro@Tri_Length.w
+    sta wSoundBankTempAddr2
+    ldy #$0
+
+    ; compare macro value against current offset
+    lda (wSoundBankTempAddr2), Y
+    beq @setUnmuted ; 0 means don't mute.
+
+    cmp wMacro@Tri_Length+2.w ; compare "offset"
+    bcs @setMuted
+
+    inc wMacro@Tri_Length+2.w ; increment "offset"
+    ; fallthrough
+
+    ; push volume and possibly set mute pending
+@setUnmuted:
+    lda #%01000000
+    sta wMusTri_Prev.w ; for next tick.
+
+    lda #%11000000 ; volume
+    bit_skip_2 ; skip next op
+
+@setMuted:
+    lda #%10000000 ; volume
+
+@epilogue:
+    pha ; push volume
+    ldy NSE_TRI ; this is wChannelIdx
+    ; read arp and detune macros as normal.
+    jmp nse_mixOutTickSq@setFrequency
+
 nse_mixOutTickSq_volzero:
     ; update nibble parity
     ldy wChannelIdx
@@ -257,19 +377,11 @@ nse_mixOutTickSq_volzero:
 
 nse_mixOutTickSq:
     ; wSoundBankTempAddr <- nse_hardwareTable[y]
-    .define hardwareOut wSoundBankTempAddr1
     ldx wChannelIdx
-    lda _nse_hardwareTable_lo.w, x
-    sta hardwareOut.w
-    lda _nse_hardwareTable_hi.w, x
-    sta hardwareOut+1.w
 
     ; nibbleParity set to 0/nonzero later on.
     lda #$1
     sta nibbleParity
-
-    ; push processor status (interrupt flags)
-    php
 
 @setVolume:
     ; ------------------------------------------
@@ -342,16 +454,23 @@ nse_mixOutTickSq:
     ; frequency
     ; ------------------------------------------
     ; get arpeggio (pitch offset)
-    ; note: y = channel idx
+    ; precondition: y = channel idx
 
-    ; A <- next Arp Macro value
+    ; x <- offset of arp address
     ldx channelMacroArpAddrTable.w, y
     stx wNSE_genVar5 ; store offset for arp macro table
 
     ; A <- next arpeggio macro value
-    nse_nextMacroByte_inline_precalc
+    lda wMacro_start+1.w, x ; skip if macro is zero.
+    beq +
 
-    sta wNSE_genVar1 ; store result
+    ; if address is odd, this is a Fixed macro, not Arpeggio macro.
+    lsr
+    bcs @fixedMacro
+    rol
+    nse_nextMacroByte_inline_precalc_abaseaddr
+
+  + sta wNSE_genVar1 ; store result
     and #%00111111   ; crop out ArpXY values
     .define arpValue wNSE_genVar0
     sta arpValue
@@ -370,6 +489,22 @@ nse_mixOutTickSq:
     clc
     adc arpValue
     bcc @endArpXYAdjust ; guaranteed -- arpValue is the sum of two nibbles, so it cannot exceed $ff.
+
+; --------------
+; fixed macro (~sneak this in in the middle of arpeggio, why not!~)
+; -------------
+@fixedMacro:
+    rol
+    nse_nextMacroByte_inline_precalc_abaseaddr
+    bpl + ; assumption: the only possible negative value is FF.
+    ; FF means use unmodified base pitch, so this hack does that.
+    sta arpValue
+    sec
+    bcs @endArpXYAdjust ; guaranteed
+
++   tax
+    dex
+    bpl @lookupFrequencyX
 
 @ArpY_UnkX:
     bmi @endArpXYAdjustCLC
@@ -395,6 +530,7 @@ nse_mixOutTickSq:
     lda wMusChannel_BasePitch.w, y
     adc arpValue ; (-C still)
     tax
+@lookupFrequencyX:
     lda pitchFrequencies_lo.w, x
     sta wSoundFrequency
     lda pitchFrequencies_hi.w, x
@@ -456,17 +592,20 @@ nse_mixOutTickSq:
 @doneDetune:
 
 @writeRegisters:
+    ldx wChannelIdx
     ldy #$0
     lda #%00110000
+    cpx TRI_LINEAR
 
     ; CRITICAL SECTION ------------------------------------------
     ; prevent interrupts during this critical section
 
     ; set volume to zero in case APU update occurs during this period
     sei ; disable interrupts
-    sta (hardwareOut), y
+    beq + ; (branch if triangle channel)
+        sta (hardwareOut), y
 
-    ; write frequency to hardware out, but only if high value has changed.
++   ; write frequency to hardware out, but only if high value has changed.
     ldy #$3
     lda (hardwareOut), y
     and #%00000111 ; frequency high only 3 bits
@@ -480,8 +619,24 @@ nse_mixOutTickSq:
   + pla ; retrieve volume.
     ldy #$0
     sta (hardwareOut), y
+
+    ; apply mute immediately if triangle channel needs muting.
+    lda wMusTri_Prev.w
+    bmi @doTriMute ; if mute not pending
     plp ; restore interrupt status
     ; END CRITICAL SECTION --------------------------------------
+
+    rts
+
+@doTriMute:
+    ; APU_FRAME_CTR <- $80
+    sta APU_FRAME_CTR
+    asl ; A <- 0
+    ; unmark pending mute
+    sta wMusTri_Prev.w
+
+    plp
+    ; END CRITICAL SECTION (alt) --------------------------------
 
     rts
 
@@ -499,7 +654,7 @@ nse_silenceAllSoundChannels:
 _nse_hardwareTable_lo:
     .db <SQ1_VOL
     .db <SQ2_VOL
-    .db UNUSED
+    .db <TRI_LINEAR
     .db UNUSED
     .db UNUSED
     .db <MMC5_PULSE1_VOL
@@ -508,7 +663,7 @@ _nse_hardwareTable_lo:
 _nse_hardwareTable_hi:
     .db >SQ1_VOL
     .db >SQ2_VOL
-    .db UNUSED
+    .db >TRI_LINEAR
     .db UNUSED
     .db UNUSED
     .db >MMC5_PULSE1_VOL

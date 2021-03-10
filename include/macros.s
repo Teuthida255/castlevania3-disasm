@@ -131,8 +131,13 @@
     sta \2+1
 .endm
 
-.macro skip
-    ; BIT trick
+.macro bit_skip_1
+    ; BIT trick (byte addr)
+    .db $24
+.endm
+
+.macro bit_skip_2
+    ; BIT trick (word addr)
     .db $2C
 .endm
 

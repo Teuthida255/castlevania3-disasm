@@ -56,7 +56,7 @@
 nse_nextSongByte:
     ldx #$0
     stx wNSE_genVar1
-    beq nse_nextMacroByte@inline ; guaranteed branch
+    beq nse_nextMacroByte@precalc ; guaranteed branch
 
 ; A <- *macro[A]++; X <- 3A; Y clobbered
 nse_nextMacroByte:
@@ -64,8 +64,12 @@ nse_nextMacroByte:
     asl ; -C
     adc wNSE_genVar1
     tax
-@inline:
-    nse_nextMacroByte_inline_precalc
+@precalc:
+    lda wMacro_start+1.w, X
+    beq @rts
+@precalc_abaseaddr:
+    nse_nextMacroByte_inline_precalc_abaseaddr
+@rts:
     rts
 
 ; A <- macro[A].offset; X <- 3A;
