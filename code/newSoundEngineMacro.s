@@ -24,7 +24,7 @@
         tay
         lda (wSoundBankTempAddr2), Y
         sta wMacro_start+2.w, X
-        beq @@@_macro_loop\@ ; guaranteed
+        bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
 
     @@@_macro_end\@:
 .endm

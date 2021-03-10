@@ -167,7 +167,6 @@
             dsb 3
         wMacro@Sq4_Duty:
             dsb 3
-
 .endif
 .ends
 
@@ -185,3 +184,5 @@
 .define wMacro_Sq3_End wMacro@Sq4_Arp
 .define wMacro_Sq4_Base wMacro@Sq4_Arp
 .define wMacro_Sq4_End wMacro@Sq4_Duty+3
+.define wMacro_Chan_Base wMacro_Sq1_Base
+.define wMacro_end wMacro_Sq4_End

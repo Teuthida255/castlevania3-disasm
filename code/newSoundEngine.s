@@ -51,19 +51,27 @@ nse_playSound:
     lda #$0
     sta wMusChannel_ReadNibble.w
 
+    lda #$0
+    
     ; initialize music channel state
     ; loop(channels)
     ldy #NUM_CHANS
--   lda #$0
-    sta wMusChannel_BaseVolume-1.w, y
+-   sta wMusChannel_BaseVolume-1.w, y
     sta wMusChannel_ArpXY-1.w, y
     ; no need to set pitch; volume is 0.
     dey
     bne -
 
+    ; initialize channel macros to 0
+    ldy #(wMacro_end - wMacro_start)
+-   sta wMacro_start, y
+    dey
+    cpy #(wMacro_Chan_Base - wMacro_start)
+    bne -
+
     ; set instrument table addresses (for caching reasons)
     ; loop(channels)
-    ldy #(NUM_CHANS*2 + 1)
+    ldy #(NUM_CHANS*2)
 
 -   ; wMusChannel_InstrTableAddr[channel] <- song.channelDatasetAddr[channel]
     lda (wSoundBankTempAddr2), Y
@@ -95,12 +103,6 @@ nse_updateSound:
     bne @nse_advanceChannelRow
 
 @nse_advanceFrame:
-    ; (word) wSoundBankTempAddr <- wMacro@Song
-    lda wMacro@Song.w
-    sta wSoundBankTempAddr1
-    lda wMacro@Song+1.w
-    sta wSoundBankTempAddr1+1
-
     ; get frame length from song data
     jsr nse_nextSongByte
     sta wMusRowsToNextFrame_a1.w
@@ -158,7 +160,8 @@ nse_updateSound:
 
 ; input:
 ;  wChannelIdx = channel
-;  (word) wSoundBankTempAddr1 = wMacro@song
+;  (word) wSoundBankTempAddr2 = wMacro@song
+;  A = phrase idx
 ; clobber: AXY
 ; result:
 ;   channel phrase <- channel.phrasetable[A]
@@ -174,34 +177,35 @@ nse_setChannelPhrase:
     lda #$1
     sta wMusChannel_RowsToNextCommand_a1, y
 
-    ; Y <- 2 * wChannelIdx
-    ; push Y
+    ; gv0 <- 2 * wChannelIdx
+    ; Y <- 2 * wChannelIdx + 1
     tya
     asl ; -C
-    pha
+    sta wNSE_genVar0
     tay
-
-    ; (word) wSoundBankTempAddr1 <- wMacro@song@channelDatasetAddr[wChannelIdx]
-    lda (wSoundBankTempAddr1), y
-    sta wSoundBankTempAddr2
     iny
-    lda (wSoundBankTempAddr1), y
-    sta wSoundBankTempAddr2+1
+
+    ; (word) wSoundBankTempAddr1 <- song@channelDatasetAddr[wChannelIdx]
+    lda (wSoundBankTempAddr2), y
+    sta wSoundBankTempAddr1
+    iny
+    lda (wSoundBankTempAddr2), y
+    sta wSoundBankTempAddr1+1
 
     ; Y <- (input A)
     txa
     tay
 
-    ; X <- 3 * wChannelIdx + 1
-    pla ; note: -C from before.
+    ; X <- 3 * wChannelIdx
+    lda wNSE_genVar0 ; note: -C from before.
     adc wChannelIdx
     tax
 
-    ; (word) wSoundBankTempAddr2 <- phrase pointer
-    lda (wSoundBankTempAddr2), y
+    ; 
+    lda (wSoundBankTempAddr1), y
     sta wMacro_phrase.w, x
     iny
-    lda (wSoundBankTempAddr2), y
+    lda (wSoundBankTempAddr1), y
     sta wMacro_phrase+1.w, x
 
     ; channel row <- 0
@@ -674,7 +678,7 @@ pitchFrequencies_lo:
 
 nse_emptySong:
     .db SONG_MACRO_DATA_OFFSET
-    .dsw $10, @nse_emptyChannelData ; channel data table
+    .dsw NUM_CHANS, @nse_emptyChannelData ; channel data table
     .db $10 ; use the first pattern (empty music pattern)
     .db 0 ; end of loop
 
