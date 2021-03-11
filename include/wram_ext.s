@@ -80,6 +80,7 @@
         dsb NUM_CHANS
     
     ; signed value centred at 80, indicating detune for channel
+    ; DPCM: stores portamento enabled
     wMusChannel_BaseDetune:
         dsb NUM_CHANS
 
@@ -97,12 +98,10 @@
     ; ArpXY is state that modifies how arpeggios work.
     ; X and Y are added to certain arpeggio values.
     ; "X" is stored in the low nibble, "Y" in the high.
+    ; DPCM: stores nibble parity instead
     wMusChannel_ArpXY:
         dsb NUM_CHANS
 
-    ; some macros pack data in nibbles; this controls the.
-    wMusChannel_ReadNibble:
-        db
     ; end music state -----
 
     ; this could be re-calculated every instrument change, but
@@ -154,6 +153,9 @@
             dsb 3
 
         ; music macros
+        
+        ; Arp macros (on all channels) are co-opted to store portamento state if portamento is enabled.
+        ; portamento state: 2 bytes of frequency, 1 byte of rate.
         wMacro@Sq1_Arp:
             dsb 3
         wMacro@Sq1_Detune:
@@ -222,4 +224,11 @@
 .define wMacro_end wMacro_Sq4_End
 
 ; bit 6 stores previous value of triangle unmute
+; bit 7 used to indicate pending mute
 .define wMusTri_Prev wMusChannel_BaseVolume+NSE_DPCM
+
+; some macros pack data in nibbles; this controls that.
+.define wMusChannel_ReadNibble wMusChannel_ArpXY+NSE_DPCM
+
+; flag per-channel: is portamento enabled
+.define wMusChannel_Portamento wMusChannel_BaseDetune+NSE_DPCM

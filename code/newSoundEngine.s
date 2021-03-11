@@ -47,18 +47,18 @@ nse_playSound:
     ; load channel dataset pointer
     copy_word_X wMacro@Song.w, wSoundBankTempAddr2.b
 
-    ; wMusChannel_ReadNibble <- 0
     lda #$0
-    sta wMusChannel_ReadNibble.w
-
-    lda #$0
+    sta wMusChannel_ReadNibble.w ; (paranoia)
+    sta wMusChannel_Portamento.w
     
     ; initialize music channel state
     ; loop(channels)
     ldy #NUM_CHANS
 -   sta wMusChannel_BaseVolume-1.w, y
-    
     sta wMusChannel_ArpXY-1.w, y
+    lda #$80
+    sta wMusChannel_BaseDetune-1.w, y
+    lda #$0
     ; no need to set pitch; volume is 0.
     dey
     bne -
@@ -480,6 +480,14 @@ nse_mixOutTickSq:
     ; get arpeggio (pitch offset)
     ; precondition: y = channel idx
 
+    ; check if portamento enabled -- if so, do that instead of arpeggio
+    ; (arpeggio and portamento are mutually exclusive)
+    lda bitIndexTable, y
+    and wMusChannel_Portamento.w
+    beq +
+    jmp @doPortamento
++
+
     ; x <- offset of arp address
     ldx channelMacroArpAddrTable.w, y
     stx wNSE_genVar5 ; store offset for arp macro table
@@ -525,7 +533,7 @@ nse_mixOutTickSq:
 
 +   tax
     dex
-    bpl @lookupFrequencyX
+    bpl @lookupFrequencyX ; guaranteed (pitches >= 0)
 
 @ArpY_UnkX:
     bmi @endArpXYAdjustCLC
@@ -570,6 +578,7 @@ nse_mixOutTickSq:
     lda pitchFrequencies_hi.w, x
     sta wSoundFrequency+1
 
+@donePortamento:
 @vibrato:
     ; add vibrato to the cumulative detune value for this channel
     lda #$ff
@@ -793,6 +802,77 @@ nse_mixOutTickSq:
     ; END CRITICAL SECTION (noise) ------------------------------
 
     rts
+
+; --------------
+; do portamento
+; --------------
+@doPortamento:
+    ; calculate target frequency (simplified)
+    ; precondition: Y = channel idx
+
+    ; X <- channel base pitch
+    lda wMusChannel_BasePitch, y
+    tax 
+
+    ; Y <- portamento struct offset
+    ; struct is 2 bytes stored frequency value, 1 byte speed
+    lda channelMacroPortamentoAddrTable, Y
+    tay
+
+    ; compute target pitch - stored pitch
+    ; then clamp to range [-portamento speed, +portamento speed]
+    sec
+    lda wMacro_start, y
+    sbc pitchFrequencies_lo.w, x
+    sta wSoundFrequency
+    lda wMacro_start+1, y
+    sbc pitchFrequencies_hi.w, x
+    bmi @negativePortamento
+@positivePortamento:
+    bne @completePortamento
+    lda wMacro_start+2, y
+    cmp wSoundFrequency
+    bcs @completePortamento
+@addPortamento:
+    ; (-C)
+    adc wMacro_start, y
+    sta wMacro_start, y
+    sta wSoundFrequency
+    lda #$0
+    adc wMacro_start+1, y
+    bpl @_completePortament_store_hi ; guaranteed (frequency hi <= 7)
+
+@completePortamento:
+    lda pitchFrequencies_lo.w, x
+    sta wMacro_start, y
+    sta wSoundFrequency
+    lda pitchFrequencies_hi.w, x
+@_completePortament_store_hi:
+    sta wMacro_start+1, y
+    sta wSoundFrequency+1
+    jmp @donePortamento
+
+@negativePortamento:
+    cmp #$FF
+    bne @completePortamento
+    ; (-C)
+
+    ; A <- negative portamento speed
+    lda #$1
+    sbc wMacro_start+2, y
+
+    ; ||speed|| < ||target - current||?
+    cmp wSoundFrequency
+    bcc @completePortamento
+@subtractPortamento:
+    ; A = -speed
+    clc
+    adc wMacro_start, y
+    sta wMacro_start, y
+    sta wSoundFrequency+1
+    lda wMacro_start+1, y
+    adc #$FF
+    jmp @_completePortament_store_hi
 
 nse_silenceAllSoundChannels:
     lda #$30
@@ -1022,6 +1102,7 @@ channelMacroVolAddrTable_a2:
     .db UNUSED
     .db wMacro@Sq3_Vol-wMacro_start+2
     .db wMacro@Sq4_Vol-wMacro_start+2
+channelMacroPortamentoAddrTable:
 channelMacroArpAddrTable:
 channelMacroBaseAddrTable:
     .db wMacro_Sq1_Base-wMacro_start

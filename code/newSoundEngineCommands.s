@@ -152,14 +152,14 @@ nse_exec_effect:
     tay
     jsr jumpTableNoPreserveY
 @nse_exec_effect_jumpTable:
-    .dw nse_exec_effect_channelPitchOffset ; $90
+    .dw nse_exec_effect_channelBaseDetune ; $90
     .dw nse_exec_effect_channelArpXY ; $91
     .dw nse_exec_effect_vibrato ; $92
     .dw nse_exec_effect_hardwareSweepUp ; $93
     .dw nse_exec_effect_hardwareSweepDown ; $94
     .dw nse_exec_effect_lengthCounter ; $95
     .dw nse_exec_effect_linearCounter ; $96
-    .dw UNUSED
+    .dw nse_exec_effect_portamento ; $97
     .dw nse_exec_effect_hardwareSweepDisable ; $98
 
 nse_execSq_SetProperty:
@@ -181,18 +181,25 @@ nse_execSq_SetProperty:
     .dw nse_execSq_SetVolume ; $70-$7F
     .dw nse_execSq_SetEchoVolume ; $80-$8F
 
-    nse_exec_effect_channelPitchOffset:
+    nse_exec_effect_channelBaseDetune:
         ; precondition: X = channel idx + 1
 
         ; A <- next phrase byte
         txa
         jsr nse_nextMacroByte
         ldx wChannelIdx_a1
-        sta wMusChannel_BasePitch-1.w, x
+        sta wMusChannel_BaseDetune-1.w, x
         jmp nse_execChannelCommands ; do next command
 
     nse_exec_effect_channelArpXY:
         ; precondition: X = channel idx + 1
+
+        ; disable portamento on this channel
+        ; (this is a documented side-effect)
+        lda #$FF
+        eor bitIndexTable-1.w, x
+        and wMusChannel_Portamento.w
+        sta wMusChannel_Portamento.w
 
         ; A <- next phrase byte
         txa
@@ -201,7 +208,48 @@ nse_execSq_SetProperty:
         sta wMusChannel_ArpXY-1.w, x
         jmp nse_execChannelCommands ; do next command
 
+    nse_exec_effect_portamento:
+
+        ; set portamento flag for channel
+        lda bitIndexTable-1.w, x
+        ora wMusChannel_Portamento.w
+        sta wMusChannel_Portamento.w
+
+        ; GV1 <- offset of portamento base struct for channel
+        lda channelMacroPortamentoAddrTable.w, x
+        sta wNSE_genVar4
+
+        ; GV2 <- 
+        lda wMusChannel_BasePitch.w, x
+        sta wNSE_genVar3
+
+        ; GV0 <- next phrase byte (portamento rate)
+        txa 
+        jsr nse_nextMacroByte
+        sta wNSE_genVar0
+
+        ; set portamento stored frequency from channel's base pitch
+
+        ; Y <- offset of portamento struct (stored/co-opted in macro dataspace)
+        ldy wNSE_genVar3
+
+        ; X <- base pitch
+        ldx wNSE_genVar4
+
+        lda pitchFrequencies_lo.w, x
+        sta wMacro_start, y
+        lda pitchFrequencies_hi.w, x
+        sta wMacro_start+1, y
+        lda wNSE_genVar0
+        sta wMacro_start+2, y
+
+        ; next command
+        lda wChannelIdx_a1
+        jmp nse_execChannelCommands_A
+
     nse_exec_effect_vibrato:
+        ; TODO
+        jmp nse_execChannelCommands
 
     nse_exec_effect_hardwareSweepUp:
         lda #$80
@@ -312,7 +360,14 @@ nse_exec_readInstrWait:
     cpx wNSE_genVar1
     bmi -
     ; (end of loop)
+
+    ; clear nibble parity flag
+    ldx wChannelIdx_a1
+    lda #$FF
+    eor bitIndexTable-1.w, x
+    and wMusChannel_ReadNibble.w
+    sta wMusChannel_ReadNibble.w
     
 @setWait:
-    ldx wChannelIdx_a1
+    ; assumes x = channel idx + 1
     jmp nse_execSetWaitFromLowNibbleGV2
