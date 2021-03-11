@@ -59,73 +59,17 @@ nse_execChannelCommands_A:
 ;   X = channel_idx + 1
 nse_exec_Note:
     sta wMusChannel_BasePitch-1.w, x
-    ; fallthrough nse_exec_readInstrWait
 
-nse_exec_readInstrWait:
-    txa ; A <- channel idx + 1
-    nse_nextMacroByte_inline ; A <- next phrase byte
-    ; wNSE_genVar1 = channel_idx+1
-    sta wNSE_genVar2 ; wNSE_genVar2 <- phrase byte
-
-@setInstr:
-    ; Y <- 2 * high nibble (i.e., 2 * new instrument)
-    and #$F0
-    ; OPTIMIZE: compare with cached instrument value?
-    shift -3
-    tay
-    
-    ; X <- 2*(channel_idx + 1)
-    asl wNSE_genVar1
-    ldx wNSE_genVar1
-
-    ; wSoundBankTempAddr2 <- wMusChannel_InstrTableAddr[channel_idx]
-    lda wMusChannel_InstrTableAddr-2.w, X
-    sta wSoundBankTempAddr2
-    lda wMusChannel_InstrTableAddr-3.w, X
-    sta wSoundBankTempAddr2+1
-    
-    ; wSoundBankTempAddr1 <- wInstrAddr[high nibble]
-    lda (wSoundBankTempAddr2), Y
-    sta wSoundBankTempAddr1
-    iny
-    lda (wSoundBankTempAddr2), Y
-    sta wSoundBankTempAddr1+1
-
-    ; X <- (channel base - wMacroStart)
-    ; wNSE_genVar1 <- (channel end - wMacroStart)
-    ; Y <- 0
-    ldy wChannelIdx_a1
-    lda channelMacroEndAddrTable-1.w, y
-    sta wNSE_genVar1
-    ldx channelMacroBaseAddrTable-1.w, y
-    ldy #$0
-
-    ; initialize macros to instrument defaults
-    ; loop(channel macro data)
--   ; (macro.lo <- instrTable[y++]
-    lda (wSoundBankTempAddr1), Y
-    iny
-    sta wMacro_start.w, x
-    inx
-
-    ; (macro.hi <- instrTable[y++]
-    lda (wSoundBankTempAddr1), Y
-    iny
-    sta wMacro_start.w, x
-    inx
-
-    ; macro.offset <- 0
+    ; reset detune accumulator
     lda #$0
-    sta wMacro_start.w, x
-    inx
+    sta wMusChannel_DetuneAccumulator_Lo.w, x
+    sta wMusChannel_DetuneAccumulator_Hi.w, x
 
-    cpx wNSE_genVar1
-    bmi -
-    ; (end of loop)
-    
-@setWait:
-    ldx wChannelIdx_a1
-    jmp nse_execSetWaitFromLowNibbleGV2
+    ; reset vibrato index
+    ldy channelMacroVibratoTable-1.w, x
+    sta wMacro_start+2,y
+
+    jmp nse_exec_readInstrWait
 
 ; preconditions:
 ;   A = command byte
@@ -215,7 +159,8 @@ nse_exec_effect:
     .dw nse_exec_effect_hardwareSweepDown ; $94
     .dw nse_exec_effect_lengthCounter ; $95
     .dw nse_exec_effect_linearCounter ; $96
-    .dw nse_exec_effect_hardwareSweepDisable ; $97
+    .dw UNUSED
+    .dw nse_exec_effect_hardwareSweepDisable ; $98
 
 nse_execSq_SetProperty:
     ; precondition: X = channel idx + 1
@@ -305,3 +250,69 @@ nse_execSq_SetProperty:
     nse_exec_effect_linearCounter:
         ; TODO
         rts
+    
+nse_exec_readInstrWait:
+    txa ; A <- channel idx + 1
+    nse_nextMacroByte_inline ; A <- next phrase byte
+    ; wNSE_genVar1 = channel_idx+1
+    sta wNSE_genVar2 ; wNSE_genVar2 <- phrase byte
+
+@setInstr:
+    ; Y <- 2 * high nibble (i.e., 2 * new instrument)
+    and #$F0
+    ; OPTIMIZE: compare with cached instrument value?
+    shift -3
+    tay
+    
+    ; X <- 2*(channel_idx + 1)
+    asl wNSE_genVar1
+    ldx wNSE_genVar1
+
+    ; wSoundBankTempAddr2 <- wMusChannel_InstrTableAddr[channel_idx]
+    lda wMusChannel_InstrTableAddr-2.w, X
+    sta wSoundBankTempAddr2
+    lda wMusChannel_InstrTableAddr-3.w, X
+    sta wSoundBankTempAddr2+1
+    
+    ; wSoundBankTempAddr1 <- wInstrAddr[high nibble]
+    lda (wSoundBankTempAddr2), Y
+    sta wSoundBankTempAddr1
+    iny
+    lda (wSoundBankTempAddr2), Y
+    sta wSoundBankTempAddr1+1
+
+    ; X <- (channel base - wMacroStart)
+    ; wNSE_genVar1 <- (channel end - wMacroStart)
+    ; Y <- 0
+    ldy wChannelIdx_a1
+    lda channelMacroEndAddrTable-1.w, y
+    sta wNSE_genVar1
+    ldx channelMacroBaseAddrTable-1.w, y
+    ldy #$0
+
+    ; initialize macros to instrument defaults
+    ; loop(channel macro data)
+-   ; (macro.lo <- instrTable[y++]
+    lda (wSoundBankTempAddr1), Y
+    iny
+    sta wMacro_start.w, x
+    inx
+
+    ; (macro.hi <- instrTable[y++]
+    lda (wSoundBankTempAddr1), Y
+    iny
+    sta wMacro_start.w, x
+    inx
+
+    ; macro.offset <- 0
+    lda #$0
+    sta wMacro_start.w, x
+    inx
+
+    cpx wNSE_genVar1
+    bmi -
+    ; (end of loop)
+    
+@setWait:
+    ldx wChannelIdx_a1
+    jmp nse_execSetWaitFromLowNibbleGV2

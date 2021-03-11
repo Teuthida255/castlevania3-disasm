@@ -83,6 +83,17 @@
     wMusChannel_BaseDetune:
         dsb NUM_CHANS
 
+    ; tracks the total detune incurred by the macro.
+    ; reset to $00 on each note.
+    ; two-byte signed value.
+    wMusChannel_DetuneAccumulator_Lo:
+        ; centred at $80
+        dsb NUM_CHANS
+
+    wMusChannel_DetuneAccumulator_Hi:
+        ; centred at $80
+        dsb NUM_CHANS
+
     ; ArpXY is state that modifies how arpeggios work.
     ; X and Y are added to certain arpeggio values.
     ; "X" is stored in the low nibble, "Y" in the high.
@@ -114,8 +125,7 @@
         wMacro@Song:
             dsb 3
 
-        ; phrase macros ---------------------------------
-        
+        ; phrase macros ---------------------------------        
         wMacro@Sq1_Phrase:
             dsb 3
         wMacro@Sq2_Phrase:
@@ -129,6 +139,18 @@
         wMacro@Sq3_Phrase:
             dsb 3
         wMacro@Sq4_Phrase:
+            dsb 3
+
+        ; channel macros
+        wMacro@Sq1_Vib:
+            dsb 3
+        wMacro@Sq2_Vib:
+            dsb 3
+        wMacro@Tri_Vib:
+            dsb 3
+        wMacro@Sq3_Vib:
+            dsb 3
+        wMacro@Sq4_Vib:
             dsb 3
 
         ; music macros
@@ -196,7 +218,7 @@
 .define wMacro_Sq3_End wMacro@Sq4_Arp
 .define wMacro_Sq4_Base wMacro@Sq4_Arp
 .define wMacro_Sq4_End wMacro@Sq4_Duty+3
-.define wMacro_Chan_Base wMacro_Sq1_Base
+.define wMacro_Chan_Base wMacro@Sq1_Vib
 .define wMacro_end wMacro_Sq4_End
 
 ; bit 6 stores previous value of triangle unmute

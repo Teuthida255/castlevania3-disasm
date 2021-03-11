@@ -440,7 +440,7 @@ nse_mixOutTickSq:
   + ; otherwise, load base volume
     lda wMusChannel_BaseVolume, y
     and #$0f
-    
+
  ++ ; multiply tmp volume with base volume.
     ; (use echo volume if "echo flag" is set)
     eor wNSE_genVar1 ; ora, eor -- it doesn't matter
@@ -540,13 +540,6 @@ nse_mixOutTickSq:
 @NoiseArpEpilogue_tramp:
     jmp @NoiseArpEpilogue
 
-; (unrelated to arpeggios)
-; this is used when no detune macro is specified
-@noDetuneMacro:
-    lda #$80
-    clc
-    bne @_adcFrequencyLo ; guaranteed
-
 @ArpNegative:
     ; negative arp value.
     sec
@@ -577,9 +570,36 @@ nse_mixOutTickSq:
     lda pitchFrequencies_hi.w, x
     sta wSoundFrequency+1
 
+@vibrato:
+    ; add vibrato to the cumulative detune value for this channel
+    lda #$ff
+    sta wNSE_genVar0
+    ldx wChannelIdx_a1
+    lda channelMacroVibratoTable.w, x
+    beq @detune ; skip if there is no vibrato supported for this channel
+    tax
+    lda wMacro_start+1.w, x
+    beq @detune
+    nse_nextMacroByte_inline_precalc_abaseaddr
+    ; A = detune value
+    clc
+    adc #$80
+    bcc +
+    inc wNSE_genVar0
+    clc
++   ; (-C)
+
+    ; add vibrato to detune
+    ldx wChannelIdx_a1
+    adc wMusChannel_DetuneAccumulator_Lo.w, x
+    sta wMusChannel_DetuneAccumulator_Lo.w, x
+    lda wNSE_genVar0
+    adc wMusChannel_DetuneAccumulator_Hi.w, x
+    sta wMusChannel_DetuneAccumulator_Hi.w, x
+
 @detune:
     ; detune
-    ; (-C from above)
+    clc
     ; X <- macro table offset for detune
     lda #$3
     adc wNSE_genVar5 ; macro table offset for Arp
@@ -589,8 +609,20 @@ nse_mixOutTickSq:
 
     ; A <- next detune value
     lda wMacro_start.w+1, x ; skip if macro is zero.
-    beq @noDetuneMacro
+    beq @@@noDetune
+    
+    .macro MACRO_TRAMPOLINE_8
+        ; this is used when no detune macro is specified
+        @@@noDetune:
+            lda #$80
+            clc
+            bne @_adcFrequencyLo ; guaranteed
+    .endm
+
+    .define MACRO_TRAMPOLINE_SPACE
     nse_nextMacroByte_inline_precalc_abaseaddr
+    .undef MACRO_TRAMPOLINE_SPACE
+    
 
     ; odd/even detune macro value
     ldy nibbleParity
@@ -606,18 +638,29 @@ nse_mixOutTickSq:
     tya ; A <- high nibble (shifted to low nibble)
 +   and #$0f
 
-@sumDetune:
-    ; add fine detune from macro
+@accumulateDetune:
+    ; add fine detune to persistent detune-accumulator (stored between ticks)
     ldx wChannelIdx
     ldy #$0
+    
+    ; convert from 4-bit reverse-signed value to 8-bit reverse-signed value
     clc
-    adc wSoundFrequency.w
-    sta wSoundFrequency.w
-    bcc +
-    inc wSoundFrequency.w+1
-    clc
-+   ; (-C)
+    sbc #$8
+    tay
+    lda #$0
+    adc #$FF
+    sta wNSE_genVar0 ; sign byte
 
+    ; add to persistent detune value
+    tya
+    clc
+    adc wMusChannel_DetuneAccumulator_Lo.w, x
+    sta wMusChannel_DetuneAccumulator_Lo.w, x
+    lda wNSE_genVar0 ; sign byte
+    adc wMusChannel_DetuneAccumulator_Hi.w, x
+    sta wMusChannel_DetuneAccumulator_Hi.w, x
+
+@sumDetune:
     ; wSoundBankTempAddr2 is macro base address; 3 bytes before it is the base detune offset.
     ; add base detune
     
@@ -636,9 +679,20 @@ nse_mixOutTickSq:
 @decrementFrequencyHi:
     ; we have to decrement frequency hi because we are adding two "reverse-signed"
     ; values (i.e. values where $80 represents zero) as though they were unsigned.
-    inc wSoundFrequency.w+1
+    dec wSoundFrequency.w+1
     clc
 +
+
+@addDetuneAccumulator:
+    ; (-C)
+    ; add detune-accumulator to current frequency
+    lda wMusChannel_DetuneAccumulator_Lo.w, x
+    adc wSoundFrequency.w
+    sta wSoundFrequency.w
+    lda wMusChannel_DetuneAccumulator_Hi.w, x
+    adc wSoundFrequency+1.w
+    sta wSoundFrequency+1.w
+    clc
 
 @addBaseDetune:
     ; (-C)
@@ -950,6 +1004,15 @@ nse_silentPhrase:
     .db 1
     .db $5F
     .db 0
+
+channelMacroVibratoTable:
+    .db wMacro@Sq1_Vib-wMacro_start
+    .db wMacro@Sq2_Vib-wMacro_start
+    .db wMacro@Tri_Vib-wMacro_start
+    .db 0
+    .db 0
+    .db wMacro@Sq3_Vib-wMacro_start
+    .db wMacro@Sq4_Vib-wMacro_start
 
 channelMacroVolAddrTable_a2:
     .db wMacro@Sq1_Vol-wMacro_start+2

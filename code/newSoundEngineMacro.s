@@ -26,6 +26,10 @@
         sta wMacro_start+2.w, X
         bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
 
+    .ifdef MACRO_TRAMPOLINE_SPACE
+        MACRO_TRAMPOLINE_\@
+    .endif
+
     @@@_macro_end\@:
 .endm
 
