@@ -58,16 +58,17 @@ nse_execChannelCommands_A:
 ;   wChannelIdx_a1 = channel_idx + 1
 ;   X = channel_idx + 1
 nse_exec_Note:
+    ; base pitch <- command byte
     sta wMusChannel_BasePitch-1.w, x
 
-    ; reset detune accumulator
+    ; detune accumulator <- 0
     lda #$0
     sta wMusChannel_DetuneAccumulator_Lo.w, x
     sta wMusChannel_DetuneAccumulator_Hi.w, x
 
     ; reset vibrato index
     ldy channelMacroVibratoTable-1.w, x
-    sta wMacro_start+2,y
+    sta wMacro_start+2,y ; (A = 0)
 
     jmp nse_exec_readInstrWait
 
@@ -300,6 +301,8 @@ nse_execSq_SetProperty:
         rts
     
 nse_exec_readInstrWait:
+    ; preconditions:
+    ;   X = channel idx + 1
     txa ; A <- channel idx + 1
     nse_nextMacroByte_inline ; A <- next phrase byte
     ; wNSE_genVar1 = channel_idx+1

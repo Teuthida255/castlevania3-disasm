@@ -102,12 +102,71 @@
     wMusChannel_ArpXY:
         dsb NUM_CHANS
 
-    ; end music state -----
+    ; end music state ----------
+
+
+    ; cache values -------------
 
     ; this could be re-calculated every instrument change, but
     ; it's helpful to cache this instead.
     wMusChannel_InstrTableAddr:
         dsw NUM_CHANS
+
+    ; hardware register cache -- write to these during the mixing logic
+    ; (runs at 60 Hz), then send these all at once to the hardware
+    ; registers after mixing, while interrupts are disabled, to prevent
+    ; any audio glitches. (Thread safety!)
+    ; The order of these allows certain optimizations.
+    wMix_CacheReg_Sq1_Vol:
+        db
+    wMix_CacheReg_Sq1_Lo:
+        db
+    wMix_CacheReg_Sq1_Hi:
+        db
+
+    wMix_CacheReg_Sq2_Vol:
+        db
+    wMix_CacheReg_Sq2_Lo:
+        db
+    wMix_CacheReg_Sq2_Hi:
+        db
+
+    wMix_CacheReg_Tri_Vol:
+        db
+    wMix_CacheReg_Tri_Hi:
+        db
+    wMix_CacheReg_Tri_Lo:
+        db
+    
+    wMix_CacheReg_Noise_Vol:
+        db
+    wMix_CacheReg_Noise_Unused: ; UNUSED
+        db
+    wMix_CacheReg_Noise_Lo:
+        db
+
+    wMix_CacheReg_DPCM_A: ; UNUSED
+        db
+    wMix_CacheReg_DPCM_B: ; UNUSED
+        db
+    wMix_CacheReg_DPCM_C: ; UNUSED
+        db
+
+    wMix_CacheReg_Sq3_Vol:
+        db
+    wMix_CacheReg_Sq3_Lo:
+        db
+    wMix_CacheReg_Sq3_Hi:
+        db
+
+    wMix_CacheReg_Sq4_Vol:
+        db
+    wMix_CacheReg_Sq4_Lo:
+        db
+    wMix_CacheReg_Sq4_Hi:
+        db
+
+    ; end cache values ----------
 
     ; macros
         ;assert NSE_SIZEOF_MACRO == 3, "must match below."
@@ -205,6 +264,8 @@
             dsb 3
 .endif
 .ends
+
+.define wMix_CacheReg_start wMix_CacheReg_Sq1_Vol
 
 .define wMacro_start wMacro@Song
 .define wMacro_phrase wMacro@Sq1_Phrase

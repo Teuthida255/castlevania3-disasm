@@ -139,9 +139,9 @@ nse_updateSound:
     beq -
 
 @frameTick:
-    rts
+    
 ;------------------------------------------------
-; New Note tick
+; New Note tick (this runs every 60 Hz frame)
 ;------------------------------------------------
 
 @mixOut:
@@ -151,6 +151,66 @@ nse_updateSound:
 -   jsr nse_mixOutTick
     dec wChannelIdx
     bpl -
+
+@writeRegisters:
+    ; CRITICAL SECTION ---------------------------
+    php
+
+    ; write triangle registers
+    lda wMix_CacheReg_Tri_Vol
+    ldx wMix_CacheReg_Tri_Lo
+    ldy wMix_CacheReg_Tri_Hi
+    sei
+    sta TRI_LINEAR
+    stx TRI_LO
+    sty TRI_HI
+
+    ; write square registers
+    .macro sqregset
+        lda wMix_CacheReg_Sq\1_Vol
+        sta SQ\1_VOL
+
+        lda wMix_CacheReg_Sq\1_Lo
+        sta SQ\1_LO
+
+        ; only update Hi if it has changed
+        lda wMix_CacheReg_Sq\1_Hi
+        eor SQ\1_HI
+        and #%00000111
+        beq +
+        sta SQ\1_HI
+        +
+    .endm
+
+    sqregset 1
+    sqregset 2
+    sqregset 3
+    sqregset 4
+
+    ; noise channel
+    lda wMix_CacheReg_Noise_Vol
+    sta NOISE_VOL
+
+    lda wMix_CacheReg_Noise_Lo
+    sta NOISE_LO
+    
+    ; triangle channel needs special attention afterward
+    ; (need to mute sometimes)
+    lda wMusTri_Prev.w ;
+    bpl +
+
+    ;   perform triangle mute
+    ;   A = wMusTri_Prev, which must be $80 at this point
+    ;   (bit 7 = pending mute, bit 6 = currently unmuted)
+    ;   (cannot have a pending mute while not currently muted)
+    sta APU_FRAME_CTR
+    asl ; A <- 0
+    sta wMusTri_Prev.w ; unmark pending mute
+
++   plp
+    ; END CRITICAL SECTION ----------------------
+
+    ; end of nse_updateSound ---------------------
     rts
 
 ;------------------------------------------------
@@ -215,25 +275,11 @@ nse_setChannelPhrase:
 
     rts
 
-.define hardwareOut wSoundBankTempAddr1
-
 nse_mixOutTickDPCM:
-    plp
     rts
 
 ; input: wChannelIdx = channel
 nse_mixOutTick:
-    ; push processor status (interrupt flags)
-    php
-
-    ; X <- channel idx
-    ; (word) hardwareOut <- base of output registers.
-    ldx wChannelIdx
-    lda _nse_hardwareTable_lo.w, x
-    sta hardwareOut.w
-    lda _nse_hardwareTable_hi.w, x
-    sta hardwareOut+1.w
-
     ; dispatch depending on channel
     cpx #NSE_TRI
     beq nse_mixOutTickTri
@@ -711,62 +757,30 @@ nse_mixOutTickSq:
     sta wSoundFrequency.w
     bcc +
     inc wSoundFrequency.w+1
+    clc
 +   
 
 @doneDetune:
 
 @writeRegisters:
-    ; x = channel idx
-    ldy #$0
-    lda #%00110000
-    cpx #NSE_TRI
+    ; pre-requisite: X = channel idx
+    ; (-C)
+    ; Y <- cache register offset
+    stx wNSE_genVar1
+    txa
+    asl
+    adc wNSE_genVar1
+    tay
 
-    ; CRITICAL SECTION ------------------------------------------
-    ; prevent interrupts during this critical section
-
-    ; set volume to zero in case APU update occurs during this period
-    ; (except for triangle channel)
-    sei ; disable interrupts
-    beq + ; (branch if triangle channel)
-        sta (hardwareOut), y
-
-+   ; write frequency to hardware out, but don't change high value if high value hasn't changed
-    ; (a side effect of writing to the high value is that it resets the phase)
-
-    ; write lo (fine) value of frequency
-    ldy #$2
+    ; store volume in cached register
+    pla ; A <- volume
+    sta wMix_CacheReg_start, y
+    
+    ; store frequency in cached register
     lda wSoundFrequency
-    sta (hardwareOut), y
-
-    ; possibly write hi (course) value of frequency
-    iny
-    lda (hardwareOut), y
-    and #%00000111 ; frequency high only 3 bits
-    cmp wSoundFrequency+1
-    beq +
-        lda wSoundFrequency+1
-        sta (hardwareOut), y
-  + pla ; retrieve volume.
-    ldy #$0
-    sta (hardwareOut), y
-
-    ; apply mute immediately if triangle channel needs muting.
-    lda wMusTri_Prev.w
-    bmi @doTriMute ; if mute not pending
-    plp ; restore interrupt status
-    ; END CRITICAL SECTION --------------------------------------
-
-    rts
-
-@doTriMute:
-    ; APU_FRAME_CTR <- $80
-    sta APU_FRAME_CTR
-    asl ; A <- 0
-    ; unmark pending mute
-    sta wMusTri_Prev.w
-
-    plp
-    ; END CRITICAL SECTION (alt) --------------------------------
+    sta wMix_CacheReg_start+1.w, y
+    lda wSoundFrequency+1
+    sta wMix_CacheReg_start+2.w, y
 
     rts
 
@@ -780,27 +794,14 @@ nse_mixOutTickSq:
     and %#00100000
     shift 2
     eor wNSE_genVar1
-    ldx #%00110000
-
-    ; CRITICAL SECTION  (noise) ---------------------------------
-    ; prevent interrupts during this critical section
-    ; set volume to zero in case APU update occurs during this period
-    sei ; disable interrupts
-
-    ; vol <- #%00110000 (muted)
-    stx NOISE_VOL
 
     ; set frequency
-    sta NOISE_LO
+    sta wMix_CacheReg_Noise_Lo
 
     ; set volume and mode.
     pla
     ora #%00110000
-    sta NOISE_VOL
-
-    plp
-    ; END CRITICAL SECTION (noise) ------------------------------
-
+    sta wMix_CacheReg_Noise_Vol
     rts
 
 ; --------------
@@ -1089,7 +1090,7 @@ channelMacroVibratoTable:
     .db wMacro@Sq1_Vib-wMacro_start
     .db wMacro@Sq2_Vib-wMacro_start
     .db wMacro@Tri_Vib-wMacro_start
-    .db 0
+    .db 0 ; 0 lets us beq to skip this.
     .db 0
     .db wMacro@Sq3_Vib-wMacro_start
     .db wMacro@Sq4_Vib-wMacro_start
