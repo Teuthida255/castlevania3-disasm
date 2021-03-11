@@ -67,10 +67,13 @@
         dsb NUM_CHANS
     
     ; music state ---------
+    ; pitch is a 7-bit value representing a semitone value.
+    ; The 8th bit indicates that the "echo volume" should be used.
     wMusChannel_BasePitch:
         dsb NUM_CHANS
     
-    ; value between 0 and F for square and noise channels
+    ; value between 0 and F for square and noise channels,
+    ; high nibble stores "echo volume."
     ; Triangle: nonzero if on, $0 otherwise.
     ; DPCM: hijacked by triangle
     wMusChannel_BaseVolume:

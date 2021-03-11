@@ -57,6 +57,7 @@ nse_playSound:
     ; loop(channels)
     ldy #NUM_CHANS
 -   sta wMusChannel_BaseVolume-1.w, y
+    
     sta wMusChannel_ArpXY-1.w, y
     ; no need to set pitch; volume is 0.
     dey
@@ -216,7 +217,6 @@ nse_setChannelPhrase:
 
 .define hardwareOut wSoundBankTempAddr1
 
-nse_mixOutTickNoise:
 nse_mixOutTickDPCM:
     plp
     rts
@@ -235,13 +235,11 @@ nse_mixOutTick:
     sta hardwareOut+1.w
 
     ; dispatch depending on channel
-    dex
-    dex
+    cpx #NSE_TRI
     beq nse_mixOutTickTri
-    dex
-    beq nse_mixOutTickNoise
-    dex
+    cpx #NSE_DPCM
     beq nse_mixOutTickDPCM
+    ; noise and sq are same routine.
     jmp nse_mixOutTickSq
 
 .define nibbleParity wNSE_genVar6
@@ -286,13 +284,15 @@ nse_mixOutTickTri_State:
     clc ; subtract 1 more than gv4
     sbc wNSE_genVar4
     sta wNSE_genVar1
-    bpl @loop_start
+    bpl @loop_start ; ^ back to top of loop
+@loop_aftermath:
 
     ; increment timer
     inc wMacro@Tri_Length+2.w
 
     ; load (un)mute value of final macro byte
     lda wNSE_genVar5
+    ; loop end.
 
 @post_loop:
     bpl nse_mixOutTickTri@setUnmuted
@@ -375,9 +375,10 @@ nse_mixOutTickSq_volzero:
     sta wNSE_genVar0
     bpl nse_mixOutTickSq@setDutyCycle ; guaranteed jump (base channel top nibble is 0)
 
+nse_mixOutTickNoise:
 nse_mixOutTickSq:
-    ; wSoundBankTempAddr <- nse_hardwareTable[y]
-    ldx wChannelIdx
+    ; preconditions:
+    ;    X = channel idx
 
     ; nibbleParity set to 0/nonzero later on.
     lda #$1
@@ -426,12 +427,33 @@ nse_mixOutTickSq:
     and #$f0
     sta wNSE_genVar1
 
-    ; multiply tmp volume with base volume.
-    lda wMusChannel_BaseVolume, y ; assumption: base volume upper nibble is 0.
+    ; check if echo flag is set
+    lda wMusChannel_BasePitch, y
+    bmi +
+
+    ; shift in echo volume
+    lda wMusChannel_BaseVolume, y
+    shift -4
+    
+    bpl ++ ; guaranteed
+
+  + ; otherwise, load base volume
+    lda wMusChannel_BaseVolume, y
+    and #$0f
+    
+ ++ ; multiply tmp volume with base volume.
+    ; (use echo volume if "echo flag" is set)
     eor wNSE_genVar1 ; ora, eor -- it doesn't matter
     tax
     lda volumeTable.w, x
-    sta wNSE_genVar0 ; genVar0 <- volume
+
+    ; skip duty cycle for noise channel (just push volume)
+    ; NOISE ------------------------
+    cpy #NSE_NOISE
+    beq @PHA_then_setFrequency
+    ; NOISE end --------------------
+
+    sta wNSE_genVar0 ; GV0 <- volume
 
 @setDutyCycle:
     ; A <- duty cycle macro value, wNSE_genVar5 <- previous duty cycle offset value
@@ -447,6 +469,8 @@ nse_mixOutTickSq:
     ; assumption: macro bytes 4 and 5 are 1.
     and #$F0
     ora wNSE_genVar0 ; OR with volume
+
+@PHA_then_setFrequency:
     pha ; store volume for later.
 
 @setFrequency:
@@ -474,9 +498,6 @@ nse_mixOutTickSq:
     and #%00111111   ; crop out ArpXY values
     .define arpValue wNSE_genVar0
     sta arpValue
-
-    ; optimization: skip altogether if macro value is 0 (i.e. there is no macro).
-    beq @endArpXYAdjustCLC
 
     ; apply ArpXY to arpeggio offset
 @ArpXYAdjust:
@@ -515,6 +536,10 @@ nse_mixOutTickSq:
     adc arpValue
     bcc @endArpXYAdjust ; guaranteed -- as above.
 
+; (let's just slide a trampoline into this space...)
+@NoiseArpEpilogue_tramp:
+    jmp @NoiseArpEpilogue
+
 ; (unrelated to arpeggios)
 ; this is used when no detune macro is specified
 @noDetuneMacro:
@@ -535,7 +560,16 @@ nse_mixOutTickSq:
     ; Y = channel idx
     ; set frequency lo
     lda wMusChannel_BasePitch.w, y
-    adc arpValue ; (results in -C)
+    and #$7F ; remove echo volume flag
+    adc arpValue
+
+    ; NOISE ------------------------
+    ; skip detune if noise channel
+    cpy #NSE_NOISE
+    beq @NoiseArpEpilogue_tramp
+    clc
+    ; NOISE end --------------------
+
     tax
 @lookupFrequencyX:
     lda pitchFrequencies_lo.w, x
@@ -622,12 +656,13 @@ nse_mixOutTickSq:
     ; x = channel idx
     ldy #$0
     lda #%00110000
-    cpx TRI_LINEAR
+    cpx #NSE_TRI
 
     ; CRITICAL SECTION ------------------------------------------
     ; prevent interrupts during this critical section
 
     ; set volume to zero in case APU update occurs during this period
+    ; (except for triangle channel)
     sei ; disable interrupts
     beq + ; (branch if triangle channel)
         sta (hardwareOut), y
@@ -672,6 +707,39 @@ nse_mixOutTickSq:
 
     rts
 
+@NoiseArpEpilogue:
+    ; X <- absolute pitch modulo $F
+    and #$F
+    sta wNSE_genVar1
+
+    ; arpValue bit 5 contains mode
+    lda arpValue
+    and %#00100000
+    shift 2
+    eor wNSE_genVar1
+    ldx #%00110000
+
+    ; CRITICAL SECTION  (noise) ---------------------------------
+    ; prevent interrupts during this critical section
+    ; set volume to zero in case APU update occurs during this period
+    sei ; disable interrupts
+
+    ; vol <- #%00110000 (muted)
+    stx NOISE_VOL
+
+    ; set frequency
+    sta NOISE_LO
+
+    ; set volume and mode.
+    pla
+    ora #%00110000
+    sta NOISE_VOL
+
+    plp
+    ; END CRITICAL SECTION (noise) ------------------------------
+
+    rts
+
 nse_silenceAllSoundChannels:
     lda #$30
     sta SQ1_VOL.w
@@ -687,7 +755,7 @@ _nse_hardwareTable_lo:
     .db <SQ1_VOL
     .db <SQ2_VOL
     .db <TRI_LINEAR
-    .db UNUSED
+    .db <NOISE_VOL
     .db UNUSED
     .db <MMC5_PULSE1_VOL
     .db <MMC5_PULSE2_VOL
@@ -696,7 +764,7 @@ _nse_hardwareTable_hi:
     .db >SQ1_VOL
     .db >SQ2_VOL
     .db >TRI_LINEAR
-    .db UNUSED
+    .db >NOISE_VOL
     .db UNUSED
     .db >MMC5_PULSE1_VOL
     .db >MMC5_PULSE2_VOL

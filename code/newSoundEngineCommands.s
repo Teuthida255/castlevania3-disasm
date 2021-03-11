@@ -2,16 +2,35 @@ nse_execDPCM:
     rts
 
 nse_execSq_SetVolume:
-    lda wChannelIdx_a1
-    bne nse_execChannelCommands_A ; guaranteed jump
-
+    ; preconditions:
+    ;   X = channel idx + 1
+    ;   GV2 lower nibble = volume amount
+    lda wNSE_genVar2
+    and #$0F
+    sta wNSE_genVar2
+    lda wMusChannel_BaseVolume-1, x
+    and #$F0
+    eor wNSE_genVar2
+    sta wMusChannel_BaseVolume-1, x
+    jmp nse_execChannelCommands_A
 
 nse_execSq_SetEcho:
+    ; TODO
     lda wChannelIdx_a1
     bne nse_execChannelCommands_A ; guaranteed jump
 
 nse_execSq_SetEchoVolume:
-    ldx wChannelIdx_a1
+    ; preconditions:
+    ;   X = channel idx + 1
+    ;   GV2 lower nibble = echo volume amount
+    lda wNSE_genVar2
+    shift 4
+    sta wNSE_genVar2
+    lda wMusChannel_BaseVolume-1, x
+    and #$0F
+    eor wNSE_genVar2
+    sta wMusChannel_BaseVolume-1, x
+    
     ; fallthrough nse_execChannelCommands
 
 ; preconditions:
@@ -122,20 +141,22 @@ nse_execSqTriNoise:
     ; (-C)
     adc #$90-$50
     bpl nse_execSq_SetProperty
-    ; fallthrough nse_execSq_Release
+    ; fallthrough nse_exec_Release
 
-nse_execSq_Release:
+nse_exec_Release:
     ; TODO
     rts
 
 ; preconditions:
-;   A = amount to wait + 1
+;   GV2 lower nibble = amount to wait
 ;   X = channel_idx + 1
 nse_exec_Cut:
-    tay
     lda #$0
     sta wMusChannel_BaseVolume-1.w, x
-    tya
+
+    ; load wait amount
+    lda wNSE_genVar2
+    and #$0F
     bne nse_setWait ; guaranteed jump (amount to wait > 0)
 
 ; preconditions:
@@ -163,9 +184,12 @@ nse_execSetWaitFromLowNibbleGV2:
     ; fallthrough
 
 ; preconditions:
-;   A = number of rows to wait + 1
+;   A = number of rows to wait
 ;   X = channel_idx + 1
 nse_setWait:
+    ; convert to _a1
+    clc
+    adc #$1
     sta wMusChannel_RowsToNextCommand_a1-1.w, x
     rts
 
@@ -193,6 +217,8 @@ nse_exec_effect:
     .dw nse_exec_effect_linearCounter ; $96
 
 nse_execSq_SetProperty:
+    ; precondition: X = channel idx + 1
+    ; store the command so we can access its lower nibble later.
     sta wNSE_genVar2
 
     ; Y <- 2*(high nibble of command)
@@ -201,10 +227,7 @@ nse_execSq_SetProperty:
     lsr
     lsr
     tay
-
-    ; A <- (low nibble of command)
-    lda wNSE_genVar2
-    and #$0F
+    
     jsr jumpTableNoPreserveY
 @nse_execSqSetProperty_JumpTable:
     .dw nse_exec_Cut ; $50-$5F
@@ -213,7 +236,25 @@ nse_execSq_SetProperty:
     .dw nse_execSq_SetEchoVolume ; $80-$8F
 
     nse_exec_effect_channelPitchOffset:
+        ; precondition: X = channel idx + 1
+
+        ; A <- next song byte
+        txa
+        jsr nse_nextMacroByte
+        ldx wChannelIdx_a1
+        sta wMusChannel_BasePitch-1.w, x
+        jmp nse_execChannelCommands_A ; do next command
+
     nse_exec_effect_channelArpXY:
+        ; precondition: X = channel idx + 1
+
+        ; A <- next song byte
+        txa
+        jsr nse_nextMacroByte
+        ldx wChannelIdx_a1
+        sta wMusChannel_ArpXY-1.w, x
+        jmp nse_execChannelCommands_A ; do next command
+
     nse_exec_effect_vibrato:
     nse_exec_effect_hardwareSweepUp:
     nse_exec_effect_hardwareSweepDown:
