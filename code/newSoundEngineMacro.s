@@ -21,13 +21,20 @@
 
         ; only if macro lookup fails
         ; A = 0
-        tay
-        lda (wSoundBankTempAddr2), Y
-        sta wMacro_start+2.w, X
-        bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
+        .ifndef MACRO_LOOP_ZERO
+            tay
+            lda (wSoundBankTempAddr2), Y
+            sta wMacro_start+2.w, X
+            bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
+        .else
+            sta wMacro_start+2.w, X
+            beq @@@_macro_loop\@
+            .undef MACRO_LOOP_ZERO
+        .endif
 
     .ifdef MACRO_TRAMPOLINE_SPACE
         MACRO_TRAMPOLINE_\@
+        .undef MACRO_TRAMPOLINE_SPACE
     .endif
 
     @@@_macro_end\@:

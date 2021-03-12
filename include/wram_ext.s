@@ -200,6 +200,7 @@
             dsb 3
 
         ; channel macros
+        ; (these always loop to zero, and don't store a loop point)
         wMacro@Sq1_Vib:
             dsb 3
         wMacro@Sq2_Vib:

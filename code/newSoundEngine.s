@@ -1,5 +1,12 @@
 .include "code/newSoundEngineMacro.s"
 
+.define SQ3_VOL MMC5_PULSE1_VOL
+.define SQ3_LO MMC5_PULSE1_LO
+.define SQ3_HI MMC5_PULSE1_HI
+.define SQ4_VOL MMC5_PULSE2_VOL
+.define SQ4_LO MMC5_PULSE2_LO
+.define SQ4_HI MMC5_PULSE2_HI
+
 ; Channels - SQ 1/2, TRI, NOISE, DPCM, MMC5 PULSE 1/2
 nse_initSound:
     jsr nse_silenceAllSoundChannels
@@ -157,9 +164,9 @@ nse_updateSound:
     php
 
     ; write triangle registers
-    lda wMix_CacheReg_Tri_Vol
-    ldx wMix_CacheReg_Tri_Lo
-    ldy wMix_CacheReg_Tri_Hi
+    lda wMix_CacheReg_Tri_Vol.w
+    ldx wMix_CacheReg_Tri_Lo.w
+    ldy wMix_CacheReg_Tri_Hi.w
     sei
     sta TRI_LINEAR
     stx TRI_LO
@@ -167,14 +174,14 @@ nse_updateSound:
 
     ; write square registers
     .macro sqregset
-        lda wMix_CacheReg_Sq\1_Vol
+        lda wMix_CacheReg_Sq\1_Vol.w
         sta SQ\1_VOL
 
-        lda wMix_CacheReg_Sq\1_Lo
+        lda wMix_CacheReg_Sq\1_Lo.w
         sta SQ\1_LO
 
         ; only update Hi if it has changed
-        lda wMix_CacheReg_Sq\1_Hi
+        lda wMix_CacheReg_Sq\1_Hi.w
         eor SQ\1_HI
         and #%00000111
         beq +
@@ -188,10 +195,10 @@ nse_updateSound:
     sqregset 4
 
     ; noise channel
-    lda wMix_CacheReg_Noise_Vol
+    lda wMix_CacheReg_Noise_Vol.w
     sta NOISE_VOL
 
-    lda wMix_CacheReg_Noise_Lo
+    lda wMix_CacheReg_Noise_Lo.w
     sta NOISE_LO
     
     ; triangle channel needs special attention afterward
@@ -635,6 +642,7 @@ nse_mixOutTickSq:
     tax
     lda wMacro_start+1.w, x
     beq @detune
+    .define MACRO_LOOP_ZERO
     nse_nextMacroByte_inline_precalc_abaseaddr
     ; A = detune value
     clc
@@ -676,7 +684,6 @@ nse_mixOutTickSq:
 
     .define MACRO_TRAMPOLINE_SPACE
     nse_nextMacroByte_inline_precalc_abaseaddr
-    .undef MACRO_TRAMPOLINE_SPACE
     
 
     ; odd/even detune macro value
@@ -796,12 +803,12 @@ nse_mixOutTickSq:
     eor wNSE_genVar1
 
     ; set frequency
-    sta wMix_CacheReg_Noise_Lo
+    sta wMix_CacheReg_Noise_Lo.w
 
     ; set volume and mode.
     pla
     ora #%00110000
-    sta wMix_CacheReg_Noise_Vol
+    sta wMix_CacheReg_Noise_Vol.w
     rts
 
 ; --------------
