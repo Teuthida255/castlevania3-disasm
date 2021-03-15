@@ -85,5 +85,8 @@ def rlen(iterable):
 def optional_hex(arg):
     return int(arg, 16) if all(c in string.hexdigits for c in arg) else None
 
+def HX(arg):
+    return hex(arg)[2:].upper()
+
 if __name__ == '__main__':
     getOutstandingLines()

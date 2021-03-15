@@ -3,18 +3,31 @@
 ; ~32 bytes
 
 ; A <- macro X/3; Y clobbered; X unaffected
-; A must contain high byte of macro base address (i.e., wMacroStart+1.w, X)
+; A must contain high byte of macro base address (i.e., wMacro_start+1.w, X)
 ; optional argument: store previous macro offset in the given address.
+; carry clear
 .macro nse_nextMacroByte_inline_precalc_abaseaddr
         sta wSoundBankTempAddr2+1
-        lda wMacro_start.w, X
+        .ifdef MACRO_BYTE_ABSOLUTE
+            lda wMacro_start+MACRO_BYTE_ABSOLUTE.w
+        .else
+            lda wMacro_start.w, X
+        .endif
         sta wSoundBankTempAddr2
     @@@_macro_loop\@:
-        lda wMacro_start+2.w, X
+        .ifdef MACRO_BYTE_ABSOLUTE
+            lda wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
+        .else
+            lda wMacro_start+2.w, X
+        .endif
         .if NARGS == 1
             sta \1
         .endif
-        inc wMacro_start+2.w, X
+        .ifdef MACRO_BYTE_ABSOLUTE
+            lda wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
+        .else
+            inc wMacro_start+2.w, X
+        .endif
         tay
         lda (wSoundBankTempAddr2), Y
         .ifndef MACRO_NO_LOOP
@@ -25,10 +38,18 @@
             .ifndef MACRO_LOOP_ZERO
                 tay
                 lda (wSoundBankTempAddr2), Y
-                sta wMacro_start+2.w, X
+                .ifdef MACRO_BYTE_ABSOLUTE
+                    sta wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
+                .else
+                    sta wMacro_start+2.w, X
+                .endif
                 bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
             .else
-                sta wMacro_start+2.w, X
+                .ifdef MACRO_BYTE_ABSOLUTE
+                    sta wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
+                .else
+                    sta wMacro_start+2.w, X
+                .endif
                 beq @@@_macro_loop\@
                 .undef MACRO_LOOP_ZERO
             .endif
@@ -41,11 +62,19 @@
         .undef MACRO_TRAMPOLINE_SPACE
     .endif
 
+    .ifdef MACRO_BYTE_ABSOLUTE
+        .undef MACRO_BYTE_ABSOLUTE
+    .endif
+
     @@@_macro_end\@:
 .endm
 
 .macro nse_nextMacroByte_inline_precalc ; A <- macro X/3; Y clobbered; X unaffected
-        lda wMacro_start+1.w, X
+        .ifdef MACRO_BYTE_ABSOLUTE
+            lda wMacro_start+MACRO_BYTE_ABSOLUTE+1.w
+        .else
+            lda wMacro_start+1.w, X
+        .endif
         beq @@@_macro_end_p\@ ; if macro address is 0, skip.
         .if NARGS == 1
             nse_nextMacroByte_inline_precalc_abaseaddr \1
@@ -58,7 +87,7 @@
 .macro nse_nextMacroByte_inline ; A <- *macro[A]++; X <- 3A; Y clobbered
         sta wNSE_genVar1
         asl ; assumption: bit 7 in A was clear.
-        adc wNSE_genVar1
+        adc wNSE_genVar1 ; (-C)
         tax
         .if NARGS == 1
             nse_nextMacroByte_inline_precalc \1

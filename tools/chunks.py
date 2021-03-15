@@ -1,11 +1,12 @@
 chunkmap = {}
 
-def chunk(label, data):
+def chunk(label, data, maxlo=0xff):
     if type(label) is not tuple:
         label = (label,)
     c = {
         "label": label,
-        "data": data 
+        "data": data,
+        "maxlo": maxlo
     }
     chunkmap[label] = c
     return c
@@ -19,7 +20,17 @@ def chunk_len(chunk):
             c += 1
     return c
 
+# returns number of bytes advanced
+# (address may be modified)
 def write_chunk(chunk, buff, i, address=None):
+    steps = 0
+    addrlo = address & 0xFF
+    if  addrlo > chunk["maxlo"]:
+        # skip some data and leave it unused
+        steps = 0x100 - addrlo
+        address += steps
+        i += steps
+
     chunk["addr"] = address
     for d in chunk["data"]:
         if is_chunkptr(d):
@@ -28,10 +39,12 @@ def write_chunk(chunk, buff, i, address=None):
             buff[i] = addr & 0xff
             buff[i + 1] = (addr >> 8) & 0xff
             i += 2
+            steps += 2
         else:
             buff[i] = d
             i += 1
-    return out
+            steps += 1
+    return steps
 
 def chunkptr(label):
     return {

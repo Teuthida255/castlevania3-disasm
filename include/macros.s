@@ -169,3 +169,12 @@
         .endr
     .endif
 .endm
+
+.macro swap_nibbles
+        asl
+        adc  #$80
+        rol  A
+        asl  A
+        adc  #$80
+        rol  A
+.endm

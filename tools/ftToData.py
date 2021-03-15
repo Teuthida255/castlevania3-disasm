@@ -1,8 +1,9 @@
 from utils import *
 from ftTextParser import ftParseTxt
 from chunks import *
+import json
 
-# TODO: optimize phrase chunks
+vibrato_json = json.load("vibrato.json")
 
 ft = None
 
@@ -43,7 +44,9 @@ def channel_chunk(song_idx, channel_idx):
         ("song", song_idx, "channel", channel_idx),
         [
             # instrument pointers
-            *[chunkptr("song", song_idx, "channel", channel_idx, "instr", i) for i in range(NUM_INSTRS)],
+            #*[chunkptr("song", song_idx, "channel", channel_idx, "instr", i) for i in range(NUM_INSTRS)],
+            *[0 for i in range(2*NUM_INSTRS)]
+            #phrase pointers
             *[
                 chunkptr("song", song_idx, "channel", channel_idx, "phrase", i) for i in rlen(
                     phrase_chunks[song_idx][channel_idx]
@@ -77,6 +80,8 @@ def song_chunk(i):
         ]
     )
 
+vibrato_used = set()
+
 note_values = {
     "C-": 0,
     "C#": 1,
@@ -94,34 +99,33 @@ note_values = {
 }
 
 opcodes = {
-    "A-0": None,
-    "A#0": 1, #...
-    "A-0-echo": 0x4F, #...
-    "release": 0x4E,
-    "tie": 0x9E,
-    "continue-pitch": 0x9F,
-    "volume": 0xB8,
-    "channel-pitch": 0xA0
-    "cut": 0xA1, #...
-    "arpxy": 0xB1,
-    "vibrato": 0xB2,
-    "sweep": 0xB3,
-    "sweep-cancel": 0xB4,
-    "length-counter": 0xB5,
-    "linear-counter": 0xB6,
-    "portamento": 0xB7,
-    "vibrato-cancel": 0xB8,
-    "groove": 0xC0 #...
+    # 0: "end of frame / loop frame"
+    # 1 - 9A: notes (other than A-0)
+    "tie": 0x9B,
+    # 9C-9F: unused.
+    "continue-pitch": 0xA0, # "slur"
+    "cut": 0xA0, #A1-AF... lower nibble = wait
+    "release": 0xB0,
+    "groove": 0xB1,
+    "volume": 0xB2,
+    "channel-pitch": 0xB3
+    "arpxy": 0xB4,
+    "vibrato": 0xB5,
+    "vibrato-cancel": 0xB6,
+    "sweep": 0xB7,
+    "sweep-cancel": 0xB8,
+    "length-counter": 0xB9,
+    "linear-counter": 0xBA,
+    "portamento": 0xBB,
+    "A-0": 0xBC, # all other notes equal 2*semitones + echo
 }
 
 def note_opcode(note, echo=False):
-    if echo:
-        return opcodes["A-0-echo"] + note
+    note_val = 2 * note + (1 if echo else 0)
+    if note_val == 0:
+        return opcodes["A-0"]
     else:
-        if note == 0:
-            return opcodes["A-0"]
-        else:
-            return opcodes["A-#"] + note - 1
+        note_val
 
 def get_note_value_from_str(note):
     assert len(note) == 3
@@ -146,7 +150,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     
     state_instr = None
     state_vol = None
-    state_echovol = 0 # reasonable default
+    state_echo_vol = None
+    state_echo_vol_pending_addr = -1
     state_note = None
     state_sweep = False
 
@@ -237,8 +242,12 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             args = effect[1:]
             argx = optional_hex(args)
             nibx = [optional_hex(args[0]), optional_hex(args[1])]
-            if op in ["P", "C", "D"]:
+            if op in ["B", "C", "D"]:
                 early_break = True
+            if op == "O":
+                # set groove
+                out_byte(opcodes["groove"])
+                data += [chunkptr(("song", song_idx, "groove", argx))]
             if op == "P":
                 # fine pitch
                 # actually subtracts from pitch value, so the reciprocal value is applied
@@ -263,6 +272,9 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 else:
                     # vibrato
                     out_byte(opcodes["vibrato"])
+                    vibrato_used.add(
+                        (nibx[0], nibx[1])
+                    )
                     data.append(
                         chunkptr("vibrato", nibx[0], nibx[1])
                     )
@@ -296,7 +308,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
         
         # write volume if it has changed
         vol_change = False
-        if vol != state_vol:
+        prev_vol = state_vol
+        if vol is not None and vol != state_vol:
             vol_change = vol != state_vol
             state_vol = vol
 
@@ -354,8 +367,27 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             
             # write volume change if necessary
             if vol_change:
-                out_byte(opcodes["volume"])
-                out_nibbles(echo_vol, state_vol)
+                if state_echo_vol == state_vol or state_echo_vol_pending_addr >= 0:
+                    # swap in echo volume
+                    echo = True
+
+                    if state_echo_vol_pending_addr >= 0:
+                        state_echo_vol_pending_addr = -1
+                        state_echo_vol = state_vol
+
+                        # write echo vol at previous location
+                        data[state_echo_vol_pending_addr] |= (state_echo_vol << 4)
+
+                    # swap states
+                    state_vol = state_echo_vol
+                    state_echo_vol = prev_vol
+                else:
+                    # set volume
+                    out_byte(opcodes["volume"])
+                    state_echo_vol_pending_addr = len(data)
+                    state_echo_vol = None
+                    # write echo volume later if we figure out what we want it to be.
+                    out_nibbles(0, state_vol)
             
             # end any hardware sweep (if necessary)
             if sweep_applied:
@@ -388,18 +420,36 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     
     return data
 
+def make_vibrato_chunks():
+    chunks = []
+    for vibrato in vibrato_used:
+        vibratostr = "4" + HX(vibrato[0]) + HX(vibrato[1])
+        chunks += chunk(
+            ("vibrato", vibrato[0], vibrato[1]),
+            vibrato_json[vibratostr]
+        )
+    return chunks
 
-            
-
-
-
+def make_groove_chunks(track_idx):
+    track = ft["tracks"][track_idx]
+    grooves = track["groove"]
+    chunks = []
+    for groove in grooves:
+        assert 0 not in groove["data"]
+        chunks += chunk(
+            ("song", song_idx, "groove", groove["index"]),
+            groove["data"] + [0] # add end marker
+        )
+    return chunks
 
 
 # indexed as listed in 0cc's exported .txt
 phrase_chunks = dict()
 
-def make_phrase_chunks_for_song():
+def make_phrase_chunks():
+    chunks =  []
     for track_idx, track in enumerate(ft["tracks"]):
+        chunks += make_groove_chunks(track_idx)
         phrase_chunks[track_idx] = [[] for i in range(NUM_CHANS)]
         for pattern_idx in enumerate(track["patterns"]):
             pattern = track["patterns"][pattern_idx]
@@ -409,24 +459,36 @@ def make_phrase_chunks_for_song():
                     ("song", track_idx, "channel", chan_idx, "phrase", pattern_idx),
                     data
                 ))
+        
+        # only add the phrase chunks for the phrases which actually appear in the song
+        used_chunks = set()
+        for frame in track["frames"]:
+            for chan_idx, phrase_idx in enumerate(frame):
+                used_chunks.add((chan_idx, phrase_idx))
+        for used_chunk in used_chunks:
+            chan_idx = used_chunk[0]
+            phrase_idx = used_chunk[1]
+            chunks += phrase_chunks[chan_idx][phrase_idx]
+    return chunks
 
 def ft_to_data(path):
     global ft
     ft = ftParseTxt(path)
 
-    make_phrase_chunks()
+    chunks = make_phrase_chunks()
 
-    data = [
+    chunks += make_vibrato_chunks()
+
+    chunks += [
         chunk("song_table", [
             chunkptr(("song", i))
             for i in range(len(ft["tracks"]))
         ]),
         *[song_chunk(i) for i in range(len(ft["tracks"]))],
         *[channel_chunk(i, j) for i in range(len(ft["tracks"])) for j in range(NUM_CHANS)],
-        *flatten([phrase_chunk for phrase_chunk in channel for channel in phrase_chunks[song_idx] for song_idx in phrase_chunks])
     ]
 
-    return data
+    return chunks
 
 # run this as a shell script
 if __name__ == "__main__":

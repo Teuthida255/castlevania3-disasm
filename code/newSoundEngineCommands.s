@@ -1,19 +1,6 @@
 nse_execDPCM:
     rts
 
-nse_execSq_SetVolume:
-    ; preconditions:
-    ;   X = channel idx + 1
-    ;   GV2 lower nibble = volume amount
-    lda wNSE_genVar2
-    and #$0F
-    sta wNSE_genVar2
-    lda wMusChannel_BaseVolume-1.w, x
-    and #$F0
-    eor wNSE_genVar2
-    sta wMusChannel_BaseVolume-1.w, x
-    jmp nse_execChannelCommands
-
 nse_execSq_SetEcho:
     ; TODO
     lda wChannelIdx_a1
@@ -54,13 +41,29 @@ nse_execChannelCommands_A:
     bne nse_execSqTriNoise ; guaranteed jump
 
 ; preconditions:
+;   wChannelIdx_a1 = channel_idx + 1
+;   X = channel_idx + 1
+nse_exec_Note_A0:
+    lda #$0
+    ; fallthrough nse_exec_Note
+
+; preconditions:
 ;   A = command byte
 ;   wChannelIdx_a1 = channel_idx + 1
 ;   X = channel_idx + 1
 nse_exec_Note:
+    ; shift "swap to echo volume" byte into carry
+    lsr
+
     ; base pitch <- command byte
     sta wMusChannel_BasePitch-1.w, x
 
+    bcc +
+    ; swap echo volume if 
+    lda wMusChannel_BaseVolume-1.w, x
+    swap_nibbles
+    sta wMusChannel_BaseVolume-1.w, x
++
     ; detune accumulator <- 0
     lda #$0
     sta wMusChannel_DetuneAccumulator_Lo.w, x
@@ -77,35 +80,41 @@ nse_exec_Note:
 ;   wChannelIdx_a1 = channel_idx + 1
 nse_execSqTriNoise:
     ldx wChannelIdx_a1
-    cmp #$4E ; (-C)
+    cmp #$9B
     bcc nse_exec_Note
-    beq nse_exec_readVolWait
-    sbc #$9B
-    bcc nse_exec_Note_echo_add_4D
+    beq nse_exec_readVolWait ; ("tie")
     ; (+C)
-    sbc #$B0
+    sbc #$B0 
     bcs nse_exec_effect
     ; (-C)
-    adc #$10
-    bpl nse_execSq_SetProperty
-    ; fallthrough nse_exec_subeffect
-
-nse_exec_subeffect:
-    ; original command byte was in the range 9E
-    ; TODO
-    rts
+    and #$0F
+    beq nse_exec_slur
+    ; fallthrough nse_exec_Cut
 
 ; preconditions:
-;   GV2 lower nibble = amount to wait
+;   A = amount to wait, A != 0
 ;   X = channel_idx + 1
 nse_exec_Cut:
+    tay
+
     lda #$0
     sta wMusChannel_BaseVolume-1.w, x
 
-    ; load wait amount
-    lda wNSE_genVar2
-    and #$0F
+    tya
     bne nse_setWait ; guaranteed jump (amount to wait > 0)
+
+nse_exec_slur:
+; preconditions:
+;   X = channel_idx + 1
+
+    ; A <- next phrase byte (pitch)
+    txa
+    jsr nse_nextMacroByte_noloop
+    ldx wChannelIdx_a1
+
+    ; base pitch <- A
+    sta wMusChannel_BasePitch-1.w, x
+    ; fallthrough nse_exec_readVolWait
 
 ; preconditions:
 ;   wChannelIdx_a1 = channel_idx + 1
@@ -122,6 +131,11 @@ nse_exec_readVolWait:
     ; volume[channel_idx] <- (high nibble) (unless read volume is 0)
     shift -4
     beq +
+        ; GV1 <- volume as low nibble
+        sta wNSE_genVar1
+        lda wMusChannel_BaseVolume-1.w, x
+        and #$F0
+        ora wNSE_genVar1
         sta wMusChannel_BaseVolume-1.w, x
     +
     ; fallthrough
@@ -131,183 +145,227 @@ nse_exec_readVolWait:
 nse_execSetWaitFromLowNibbleGV2:
     lda wNSE_genVar2
     and #$0F
-    ; fallthrough
+    ; fallthrough nse_setWait
 
 ; preconditions:
-;   A = number of rows to wait
+;   A = number of rows to wait (1 = next row, 0 is invalid)
 ;   X = channel_idx + 1
 nse_setWait:
-    ; convert to _a1
-    clc
-    adc #$1
     sta wMusChannel_RowsToNextCommand_a1-1.w, x
     rts
 
 ; preconditions:
-; A = (command - $90)
-; command >= 90
+;   A = (command - $B0)
+;   command >= B0
+;   wChannelIdx_a1 = channel_idx + 1
+;   X = channel_idx + 1
 nse_exec_effect:
-; special case: if command == $ff, it's actually note A-0.
-    cmp #$ff-$90
-    bne +
-    lda #$0 ; $FF is an alias for 0 because macros cannot contain 0.
-    jmp nse_exec_Note
+    beq nse_exec_release ; optional: remove this
 ; -----------------
 ; actual effects:
-+   asl
+    asl
     tay
     jsr jumpTableNoPreserveY
 @nse_exec_effect_jumpTable:
-    .dw nse_exec_effect_channelBaseDetune ; $90
-    .dw nse_exec_effect_channelArpXY ; $91
-    .dw nse_exec_effect_vibrato ; $92
-    .dw nse_exec_effect_hardwareSweepUp ; $93
-    .dw nse_exec_effect_hardwareSweepDown ; $94
-    .dw nse_exec_effect_lengthCounter ; $95
-    .dw nse_exec_effect_linearCounter ; $96
-    .dw nse_exec_effect_portamento ; $97
-    .dw nse_exec_effect_hardwareSweepDisable ; $98
+    .dw nse_exec_release ; $B0
+    .dw nse_exec_groove ; $B1
+    .dw nse_exec_volume ; $B2
+    .dw nse_exec_effect_channelBaseDetune ; $B3
+    .dw nse_exec_effect_channelArpXY ; $B4
+    .dw nse_exec_effect_vibrato ; $B5
+    .dw nse_exec_effect_vibrato_cancel ; $B6
+    .dw nse_exec_effect_hardwareSweep ; $B7
+    .dw nse_exec_effect_hardwareSweepDisable ; $B8
+    .dw nse_exec_effect_lengthCounter ; $B9
+    .dw nse_exec_effect_linearCounter ; $BA
+    .dw nse_exec_effect_portamento ; $BB
+    .dw nse_exec_Note_A0 ; $BC
 
-nse_execSq_SetProperty:
+nse_exec_release:
+    jmp nse_exec_readVolWait
+
+nse_exec_effect_channelBaseDetune:
     ; precondition: X = channel idx + 1
-    ; store the command so we can access its lower nibble later.
-    sta wNSE_genVar2
 
-    ; Y <- 2*(high nibble of command)
-    and #$F0
-    lsr
-    lsr
-    lsr
-    tay
+    ; A <- next phrase byte
+    txa
+    jsr nse_nextMacroByte_noloop
+    ldx wChannelIdx_a1
+    sta wMusChannel_BaseDetune-1.w, x
+    jmp nse_execChannelCommands ; do next command
+
+nse_exec_effect_channelArpXY:
+    ; precondition: X = channel idx + 1
+
+    ; disable portamento on this channel
+    ; (this is a documented side-effect)
+    lda #$FF
+    eor bitIndexTable-1.w, x
+    and wMusChannel_Portamento.w
+    sta wMusChannel_Portamento.w
+
+    ; A <- next phrase byte
+    txa
+    jsr nse_nextMacroByte_noloop
+    ldx wChannelIdx_a1
+    sta wMusChannel_ArpXY-1.w, x
+    jmp nse_execChannelCommands ; do next command
+
+nse_exec_effect_portamento:
+
+    ; cancel arpxy (this is a documented side-effect)
+    lda #$0
+    sta wMusChannel_ArpXY.w, x
+
+    ; set portamento flag for channel
+    lda bitIndexTable.w, x
+    ora wMusChannel_Portamento.w
+    sta wMusChannel_Portamento.w
+
+    ; GV1 <- offset of portamento base struct for channel
+    lda channelMacroPortamentoAddrTable.w, x
+    sta wNSE_genVar4
+
+    ; GV
+    lda wMusChannel_BasePitch.w, x
+    sta wNSE_genVar3
+
+    ; GV0 <- next phrase byte (portamento rate)
+    txa 
+    jsr nse_nextMacroByte_noloop
+    sta wNSE_genVar0
+
+    ; set portamento stored frequency from channel's base pitch
+
+    ; Y <- offset of portamento struct (stored/co-opted in macro dataspace)
+    ldy wNSE_genVar3
+
+    ; X <- base pitch
+    ldx wNSE_genVar4
+
+    lda pitchFrequencies_lo.w, x
+    sta wMacro_start, y
+    lda pitchFrequencies_hi.w, x
+    sta wMacro_start+1, y
+    lda wNSE_genVar0
+    sta wMacro_start+2, y
+
+    ; next command
+    lda wChannelIdx_a1
+    jmp nse_execChannelCommands_A
+
+nse_exec_effect_vibrato:
+    ; (X = channel idx + 1)
+    jsr nse_nextMacroByte_noloop
+    sta wNSE_genVar0
+    ldx wChannelIdx_a1
+
+    jsr nse_nextMacroByte_noloop
+    ldx wChannelIdx_a1
+
+    ; vibrato hi <- second phrase byte
+    ldy channelMacroVibratoTable.w, x
+    sta wMacro_start+1, y
+
+    ; vibrato lo <- first phrase byte
+    lda wNSE_genVar0
+    sta wMacro_start, y
     
-    jsr jumpTableNoPreserveY
-@nse_execSqSetProperty_JumpTable:
-    .dw nse_exec_Cut ; $50-$5F
-    .dw nse_execSq_SetEcho ; $60-$6F
-    .dw nse_execSq_SetVolume ; $70-$7F
-    .dw nse_execSq_SetEchoVolume ; $80-$8F
+    ; vibrato offset <- 0
+    lda #$0
+    sta wMacro_start+2, y
 
-    nse_exec_effect_channelBaseDetune:
-        ; precondition: X = channel idx + 1
+    ; next command
+    jmp nse_execChannelCommands
 
-        ; A <- next phrase byte
-        txa
-        jsr nse_nextMacroByte_noloop
-        ldx wChannelIdx_a1
-        sta wMusChannel_BaseDetune-1.w, x
-        jmp nse_execChannelCommands ; do next command
+nse_exec_effect_vibrato_cancel:
+    ; set hi byte of vibrato address to 0
+    ; (this indicates vibrato is disabled)
+    lda #$0
+    ldy channelMacroVibratoTable.w, x
+    sta wMacro_start+1, y
+    jmp nse_execChannelCommands
 
-    nse_exec_effect_channelArpXY:
-        ; precondition: X = channel idx + 1
+nse_exec_groove:
+    ; (X = channel idx + 1)
+    jsr nse_nextMacroByte_noloop
+    sta wNSE_genVar0
+    ldx wChannelIdx_a1
 
-        ; disable portamento on this channel
-        ; (this is a documented side-effect)
-        lda #$FF
-        eor bitIndexTable-1.w, x
-        and wMusChannel_Portamento.w
-        sta wMusChannel_Portamento.w
+    jsr nse_nextMacroByte_noloop
 
-        ; A <- next phrase byte
-        txa
-        jsr nse_nextMacroByte_noloop
-        ldx wChannelIdx_a1
-        sta wMusChannel_ArpXY-1.w, x
-        jmp nse_execChannelCommands ; do next command
+    ; groove hi <- second phrase byte
+    sta wMacro@Groove+1.w
 
-    nse_exec_effect_portamento:
+    ; groove lo <- first phrase byte
+    lda wNSE_genVar0
+    sta wMacro@Groove.w
+    
+    ; groove offset <- 0
+    lda #$0
+    sta wMacro@Groove+2.w
 
-        ; cancel arpxy (this is a documented side-effect)
-        lda #$0
-        sta wMusChannel_ArpXY, x
+    ; next command
+    lda wChannelIdx_a1
+    jmp nse_execChannelCommands_A
 
-        ; set portamento flag for channel
-        lda bitIndexTable.w, x
-        ora wMusChannel_Portamento.w
-        sta wMusChannel_Portamento.w
+nse_exec_volume:
+    jsr nse_nextMacroByte_noloop
+    ldx wChannelIdx_a1
+    sta wMusChannel_BaseVolume-1.w, x
+    jmp nse_execChannelCommands
 
-        ; GV1 <- offset of portamento base struct for channel
-        lda channelMacroPortamentoAddrTable.w, x
-        sta wNSE_genVar4
+nse_exec_effect_hardwareSweep:
+    lda bitIndexTable.w, x
+    and wSFXChannelActive.w
+    bne + ; skip this if sfx active
 
-        ; GV
-        lda wMusChannel_BasePitch.w, x
-        sta wNSE_genVar3
+    ; tempaddr1 <- sweep address
+    lda _nse_hardwareTable_lo-1.w, x
+    sta wSoundBankTempAddr1
+    lda >SQ1_SWEEP ; note that SQ1 sweep hi = SQ2 sweep hi 
+    sta wSoundBankTempAddr1+1
 
-        ; GV0 <- next phrase byte (portamento rate)
-        txa 
-        jsr nse_nextMacroByte_noloop
-        sta wNSE_genVar0
+    ; A <- next phrase byte
+    txa
+    jsr nse_nextMacroByte_noloop
 
-        ; set portamento stored frequency from channel's base pitch
+    ; set enable bit
+    tay
+    ora #$80
 
-        ; Y <- offset of portamento struct (stored/co-opted in macro dataspace)
-        ldy wNSE_genVar3
+    ; hardware sweep register <- A
+    ldy #$1
+    sta (wSoundBankTempAddr1), y
+ +  jmp nse_execChannelCommands
 
-        ; X <- base pitch
-        ldx wNSE_genVar4
+nse_exec_effect_hardwareSweepDisable:
+    ; precondition: X = channel idx + 1
 
-        lda pitchFrequencies_lo.w, x
-        sta wMacro_start, y
-        lda pitchFrequencies_hi.w, x
-        sta wMacro_start+1, y
-        lda wNSE_genVar0
-        sta wMacro_start+2, y
+    lda bitIndexTable.w, x
+    and wSFXChannelActive.w
+    bne + ; skip this if sfx active
 
-        ; next command
-        lda wChannelIdx_a1
-        jmp nse_execChannelCommands_A
+    lda _nse_hardwareTable_lo-1.w, x
+    sta wSoundBankTempAddr2
+    lda >SQ1_SWEEP ; note that SQ1 sweep hi = SQ2 sweep hi 
+    sta wSoundBankTempAddr2+1
 
-    nse_exec_effect_vibrato:
-        ; TODO
-        jmp nse_execChannelCommands
+    ; note: A = $40, which is >SQ1_SWEEP
+    ; (this value also happens to disable the sweep.)
+    ldy #$1
+    sta (wSoundBankTempAddr2), y
+ +  jmp nse_execChannelCommands
 
-    nse_exec_effect_hardwareSweepUp:
-        lda #$80
-        bit_skip_2
-        ; fallthrough (~BIT SKIP)
-        
-    nse_exec_effect_hardwareSweepDown:
-        lda #$88
-        sta wNSE_genVar0
+nse_exec_effect_lengthCounter:
+nse_exec_effect_linearCounter:
+    lda bitIndexTable.w, x
+    and wSFXChannelActive.w
+    bne + ; skip this if sfx active
 
-        ; tempaddr1 <- sweep address
-        lda _nse_hardwareTable_lo-1.w, x
-        sta wSoundBankTempAddr1
-        lda >SQ1_SWEEP ; note that SQ1 sweep hi = SQ2 sweep hi 
-        sta wSoundBankTempAddr1+1
+    ; TODO
 
-        ; A <- next phrase byte
-        txa
-        jsr nse_nextMacroByte_noloop
-
-        ; set enable and possibly negate bits
-        tay
-        and #$77
-        ora wNSE_genVar0
-
-        ; hardware sweep register <- A
-        ldy #$1
-        sta (wSoundBankTempAddr1), y
-        jmp nse_execChannelCommands
-
-    nse_exec_effect_hardwareSweepDisable:
-        ; precondition: X = channel idx + 1
-
-        lda _nse_hardwareTable_lo-1.w, x
-        sta wSoundBankTempAddr2
-        lda >SQ1_SWEEP ; note that SQ1 sweep hi = SQ2 sweep hi 
-        sta wSoundBankTempAddr2+1
-
-        ; note: A = $40, which is >SQ1_SWEEP
-        ; (this value also happens to disable the sweep.)
-        ldy #$1
-        sta (wSoundBankTempAddr2), y
-        jmp nse_execChannelCommands
-
-    nse_exec_effect_lengthCounter:
-    nse_exec_effect_linearCounter:
-        ; TODO
-        rts
+  + jmp nse_execChannelCommands
     
 nse_exec_readInstrWait:
     ; preconditions:
@@ -341,8 +399,8 @@ nse_exec_readInstrWait:
     lda (wSoundBankTempAddr2), Y
     sta wSoundBankTempAddr1+1
 
-    ; X <- (channel base - wMacroStart)
-    ; wNSE_genVar1 <- (channel end - wMacroStart)
+    ; X <- (channel base - wMacro_start)
+    ; wNSE_genVar1 <- (channel end - wMacro_start)
     ; Y <- 0
     ldy wChannelIdx_a1
     lda channelMacroEndAddrTable-1.w, y

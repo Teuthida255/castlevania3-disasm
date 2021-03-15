@@ -117,6 +117,7 @@ def ftParseTxt(path):
             })
         
         elif op == 'GROOVE':
+            assert len(z) - 3 == z[1], "groove length and data do not match
             grooves.append({
                 "index": z[0],
                 "length": z[1],

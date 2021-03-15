@@ -586,8 +586,13 @@ wCurrInstrumentDataAddr: ; $e0
         db
 .nextu
     ; new sound engine
-    wSoundBankTempAddr4:
-        dw
+    wNSE_genVar7:
+        db
+
+    ; current channel is unmasked?
+    ; (cached state)
+    wNSE_current_channel_is_unmasked:
+        db
 .endu
 
 .union

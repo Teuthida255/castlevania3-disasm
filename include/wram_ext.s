@@ -45,12 +45,6 @@
 .ifdef SOUND_ENGINE
     ; "_a1" suffix means stored value is 1 greater than semantic value
 
-    wMusGrooveIdx:
-        db
-    
-    wMusGrooveSubIdx:
-        db
-
     ; if (semantic) this is 0, then the row will advance on the next update.
     wMusTicksToNextRow_a1:
         db
@@ -68,12 +62,11 @@
     
     ; music state ---------
     ; pitch is a 7-bit value representing a semitone value.
-    ; The 8th bit indicates that the "echo volume" should be used.
     wMusChannel_BasePitch:
         dsb NUM_CHANS
     
     ; value between 0 and F for square and noise channels,
-    ; high nibble stores "echo volume."
+    ; high nibble stores "echo volume," which can be swapped in.
     ; Triangle: nonzero if on, $0 otherwise.
     ; DPCM: hijacked by triangle
     wMusChannel_BaseVolume:
@@ -81,6 +74,7 @@
     
     ; signed value centred at 80, indicating detune for channel
     ; DPCM: stores portamento enabled
+    ; noise: stores sfx mask
     wMusChannel_BaseDetune:
         dsb NUM_CHANS
 
@@ -199,6 +193,11 @@
         wMacro@Sq4_Phrase:
             dsb 3
 
+        ; groove
+        ; (always loops to zero, doesn't store loop point)
+        wMacro@Groove:
+            dsb 3
+
         ; channel macros
         ; (these always loop to zero, and don't store a loop point)
         wMacro@Sq1_Vib:
@@ -282,7 +281,7 @@
 .define wMacro_Sq3_End wMacro@Sq4_Arp
 .define wMacro_Sq4_Base wMacro@Sq4_Arp
 .define wMacro_Sq4_End wMacro@Sq4_Duty+3
-.define wMacro_Chan_Base wMacro@Sq1_Vib
+.define wMacro_Chan_Base wMacro@Groove
 .define wMacro_end wMacro_Sq4_End
 
 ; bit 6 stores previous value of triangle unmute
@@ -294,3 +293,5 @@
 
 ; flag per-channel: is portamento enabled
 .define wMusChannel_Portamento wMusChannel_BaseDetune+NSE_DPCM
+
+.define wSFXChannelActive wMusChannel_BaseDetune+NSE_NOISE
