@@ -1,4 +1,5 @@
 import sys
+import string
 
 with open('original/OR.bin', 'rb') as f:
     prgData = f.read()
@@ -71,6 +72,18 @@ def groupBytes(_bytes, groups):
         joined = ' '.join(f'${b:02x}' for b in rowBytes)
         comps.append(f'\t.db {joined}')
     return '\n'.join(comps)
+
+def flatten(iterable):
+    l = []
+    for y in iterable:
+        l += y
+    return l
+
+def rlen(iterable):
+    return range(len(iterable))
+
+def optional_hex(arg):
+    return int(arg, 16) if all(c in string.hexdigits for c in arg) else None
 
 if __name__ == '__main__':
     getOutstandingLines()

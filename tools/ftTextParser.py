@@ -1,5 +1,5 @@
 from utils import groupBytes
-import clipboard
+from utils import *
 
 def lineComps(line):
     return [c for c in line.split() if c]
@@ -7,112 +7,202 @@ def lineComps(line):
 def join(_bytes):
     return " ".join(f'${b:02x}' for b in _bytes)
 
-def ftTextParser():
-    with open('AoC_Demo(1).txt') as f:
-        ftData = f.read().splitlines()
+token_macros = [
+    "MACRO",
+	"MACROVRC6",
+	"MACRON163",
+	"MACROS5B",
+]
 
-    dpcmBytesData = []
+token_insts = [
+    "INST2A03",
+    "INSTVRC6",
+    "INSTS5B"
+]
+
+# returns dict containing ft data, representable in json.
+def ftParseTxt(path):
+    lines = []
+    with open(path) as f:
+        lines = f.read().splitlines()
+
+    macros = []
+    dpcms = []
     grooves = []
+    usegroove = []
     comps = []
     phrases = []
-    instrPhaseLocations = []
+    instruments = []
+    tracks = []
 
     currPattern = 0
     currRow = 0
-    numEffects = [4, 4, 4, 1, 4, 3, 3]
-    # keyed by pattern idx, dicts keyed by row, dicts keyed by instr idx
-    patternData = {}
+    # keyed by pattern idx, lists keyed by row, lists keyed by instr idx
 
-    for line in ftData:
+    data = {
+        "title": "",
+        "author": "",
+        "copyright": "",
+        "comment": "",
+        "machine": 0,
+        "framerate": 0,
+        "expansion": 0,
+        "vibrato": 0,
+        "split": 0,
+        "macros": macros,
+        "tuning": [],
+        "dpcm": dpcms,
+        "groove": grooves,
+        "tracks": tracks,
+        "instruments": instruments
+    }
+
+    for line in lines:
         lc = lineComps(line)
+        if len(lc) == 0:
+            continue
 
-        if line.startswith('DPCM : '):
-            dpcmBytes = lc[2:]
-            dpcmBytesData.extend(map(lambda b: int(b, 16), dpcmBytes))
+        op = lc[0]
+
+        if op == "#":
+            continue
+
+        args = lc[1:]
+        z = [int(arg) if arg.isnumeric() else None for arg in args]
+        x = [optional_hex(arg) for arg in args]
+
+        if op == "TITLE":
+            data["title"] = args[0]
+        elif op == "AUTHOR":
+            data["author"] = args[0]
+        elif op == "COPYRIGHT":
+            data["copyright"] = args[0]
+        elif op == "COMMENT":
+            data["comment"] = args[0]
+        elif op == "MACHINE":
+            data["machine"] = z[0]
+        elif op == "FRAMERATE":
+            data["framerate"] = z[0]
+        elif op == "EXPANSION":
+            data["expansion"] = z[0]
+        elif op == "VIBRATO":
+            data["vibrato"] = z[0]
+        elif op == "SPLIT":
+            data["split"] = z[0]
+        elif op == "TUNING":
+            data["tuning"] = z
+
+        elif op == "DPCMDEF":
+            dpcms.append({
+                "index": z[0],
+                "length": z[1],
+                "name": z[2],
+                "data": []
+            })
+            assert dpcms[-1]["index"] == len(dpcms) - 1
+
+        elif op == "DPCM":
+            dpcmBytes = args[1:]
+            dpcms[-1]["data"].extend(map(lambda b: int(b, 16), dpcmBytes))
         
-        elif line.startswith('GROOVE'):
-            grooveIdx = int(lc[1])
-            assert grooveIdx == len(grooves)
-            grooves.append(lc[4:])
+        elif op in token_macros:
+            macros.append({
+                "chip": token_macros.index(op),
+                "mt": z[0],
+                "index": z[1],
+                "loop": z[2],
+                "release": z[3],
+                "setting": z[4],
+                "data": z[6:]
+            })
+        
+        elif op == 'GROOVE':
+            grooves.append({
+                "index": z[0],
+                "length": z[1],
+                "data": z[3:]
+            })
+        
+        elif op == "USEGROOVE":
+            usegroove = z[1:]
 
-        elif line.startswith('ORDER'):
-            phrases.append(list(map(lambda b: int(b, 16), lc[3:])))
+        elif op in token_insts:
+            instruments.append({
+                "type": op,
+                "index": z[0],
+                "macros": z[1:5],
+                "name": args[5],
+                "dpcmkeys": {}
+            })
 
-        elif line.startswith('PATTERN'):
-            currPattern = int(lc[1], 16)
-            patternData[currPattern] = {}
+        elif op == "KEYDPCM":
+            o = z[1]
+            n = z[2]
+            note = o * 12 + n
+            instruments[z[0]]["dpcmkeys"][note] = {
+                "index": z[3],
+                "pitch": z[4],
+                "loop": z[5] == 1,
+                "loopOffset": z[6],
+                "delta": z[7]
+            }
 
-        elif line.startswith('ROW'):
-            currRow = int(lc[1], 16)
-            patternData[currPattern][currRow] = {}
+        elif op == "TRACK":
+            tracks.append({
+                "patternLength": z[0],
+                "useGroove": len(tracks) in usegroove,
+                "speed": z[1],
+                "tempo": z[2],
+                "title": args[3],
+                "columns": [],
+                "frames": [],
+                "patterns": {}
+            })
+
+        elif op == ('COLUMNS'):
+            tracks[-1]["columns"] = z[1:]
+
+        elif op == ('ORDER'):
+            tracks[-1]["frames"].append(list(map(lambda b: int(b, 16), args[2:])))
+
+        elif op == ('PATTERN'):
+            currPattern = x[0]
+            patternData = tracks[-1]["patterns"]
+            patternData[currPattern] = []
+
+        elif op == ('ROW'):
+            currRow = x[0]
+            assert currRow == len(patternData[currPattern])
+            patternData[currPattern].append([])
+            patternData[currPattern]
 
             currLCIdx = 3
-            for instrIdx in range(7):
-                numInstrEffects = numEffects[instrIdx]
-                instrData = lc[currLCIdx:currLCIdx+numInstrEffects+3]
-                currLCIdx += numInstrEffects + 4
+            for numEffects in tracks[-1]["columns"]:
+                instrData = lc[currLCIdx:currLCIdx+numEffects+3]
+                instrData = [data if not ".....".startswith(data) else None for data in instrData]
+                currLCIdx += numEffects + 3 + 1 # skip : as well
 
-                patternData[currPattern][currRow][instrIdx] = {
+                patternData[currPattern][-1].append({
                     "note": instrData[0],
                     "instr": instrData[1],
                     "vol": instrData[2],
-                    "effects": instrData[3:],
-                }
+                    "effects": [effect for effect in instrData[3:] if effect],
+                })
+        else:
+            assert False, "unknown token: \"" + op + "\""
+    return data
 
-    # get 1 pattern idx for every instr phase
-    if phrases:
-        for instrData in zip(*phrases):
-            instrPhases = {}
-            for i, num in enumerate(instrData):
-                if num not in instrPhases:
-                    instrPhases[num] = i
-            instrPhaseLocations.append(instrPhases)
+# run this as a shell script
+if __name__ == "__main__":
+    import json
+    import sys
+    if len(sys.argv) != 2:
+        print("usage: " + sys.argv[0] + " /path/to/ftexport.0cc")
+        exit(1)
+    j = ftParseTxt(sys.argv[1])
+    if j == None:
+        print("An error has occurred.")
+        exit(2)
+    print(json.dumps(j))
+    exit(0)
 
-    # keyed by phrase
-    sq1Data = {}
-    sq2Data = {}
-    triData = {}
-    noiseData = {}
-    dpcmData = {}
-    pulse1Data = {}
-    pulse2Data = {}
-    conductorData = {}
-
-    #############################
-    # Building export
-    #############################
-
-    comps.append('grooves:')
-    for i, groove in enumerate(grooves):
-        comps.append(f'\t.dw @groove{i:02x}')
-    for i, groove in enumerate(grooves):
-        comps.append(f'@groove{i:02x}')
-        grooveBytes = list(map(int, groove))
-        grooveBytes.append(0)
-        comps.append(f'\t.db {join(grooveBytes)}')
-    comps.append('')
-
-    # TODO: numFramesAndLoopPoint
-
-    comps.append('framePhrases:')
-    for line in phrases:
-        comps.append(f'\t.db {join([*line, line[4]])}')
-    comps.append('')
-
-    comps.append("phraseAddrs:")
-    comps.append("\t.dw @instrSQ1")
-    comps.append("\t.dw @instrSQ2")
-    comps.append("\t.dw @instrTRI")
-    comps.append("\t.dw @instrNOISE")
-    comps.append("\t.dw @instrDPCM")
-    comps.append("\t.dw @instrPULSE1")
-    comps.append("\t.dw @instrPULSE2")
-    comps.append("\t.dw @instrConductor")
-
-    with open('sndData_export.txt', 'w') as f:
-        f.write("\n".join(comps))
-
-    with open('dpcm_export.txt', 'w') as f:
-        f.write(groupBytes(dpcmBytesData, 16))
-
-ftTextParser()

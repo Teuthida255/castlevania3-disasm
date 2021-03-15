@@ -45,7 +45,7 @@ nse_execChannelCommands:
 ;    A = channel_idx + 1
 nse_execChannelCommands_A:
     ; retrieve command byte for channel idx
-    nse_nextMacroByte_inline ; OPTIMIZE: consider making this non-inlined?
+    nse_nextMacroByte_inline
     ; A is now the next command byte
     ; X is now 3*(channel_idx+1)
 
@@ -77,18 +77,21 @@ nse_exec_Note:
 ;   wChannelIdx_a1 = channel_idx + 1
 nse_execSqTriNoise:
     ldx wChannelIdx_a1
-    cmp #$4E
+    cmp #$4E ; (-C)
     bcc nse_exec_Note
     beq nse_exec_readVolWait
+    sbc #$9B
+    bcc nse_exec_Note_echo_add_4D
     ; (+C)
-    sbc #$90
+    sbc #$B0
     bcs nse_exec_effect
     ; (-C)
-    adc #$90-$50
+    adc #$10
     bpl nse_execSq_SetProperty
-    ; fallthrough nse_exec_Release
+    ; fallthrough nse_exec_subeffect
 
-nse_exec_Release:
+nse_exec_subeffect:
+    ; original command byte was in the range 9E
     ; TODO
     rts
 
@@ -112,13 +115,15 @@ nse_exec_readVolWait:
     ; A <- next phrase byte
     ; wNSE_genVar2 <- phrase byte
     txa
-    jsr nse_nextMacroByte
+    jsr nse_nextMacroByte_noloop
     sta wNSE_genVar2
     ldx wChannelIdx_a1
 
-    ; volume[channel_idx] <- (high nibble)
+    ; volume[channel_idx] <- (high nibble) (unless read volume is 0)
     shift -4
-    sta wMusChannel_BaseVolume-1.w, x
+    beq +
+        sta wMusChannel_BaseVolume-1.w, x
+    +
     ; fallthrough
 
 ; preconditions:
@@ -187,7 +192,7 @@ nse_execSq_SetProperty:
 
         ; A <- next phrase byte
         txa
-        jsr nse_nextMacroByte
+        jsr nse_nextMacroByte_noloop
         ldx wChannelIdx_a1
         sta wMusChannel_BaseDetune-1.w, x
         jmp nse_execChannelCommands ; do next command
@@ -204,15 +209,19 @@ nse_execSq_SetProperty:
 
         ; A <- next phrase byte
         txa
-        jsr nse_nextMacroByte
+        jsr nse_nextMacroByte_noloop
         ldx wChannelIdx_a1
         sta wMusChannel_ArpXY-1.w, x
         jmp nse_execChannelCommands ; do next command
 
     nse_exec_effect_portamento:
 
+        ; cancel arpxy (this is a documented side-effect)
+        lda #$0
+        sta wMusChannel_ArpXY, x
+
         ; set portamento flag for channel
-        lda bitIndexTable-1.w, x
+        lda bitIndexTable.w, x
         ora wMusChannel_Portamento.w
         sta wMusChannel_Portamento.w
 
@@ -220,13 +229,13 @@ nse_execSq_SetProperty:
         lda channelMacroPortamentoAddrTable.w, x
         sta wNSE_genVar4
 
-        ; GV2 <- 
+        ; GV
         lda wMusChannel_BasePitch.w, x
         sta wNSE_genVar3
 
         ; GV0 <- next phrase byte (portamento rate)
         txa 
-        jsr nse_nextMacroByte
+        jsr nse_nextMacroByte_noloop
         sta wNSE_genVar0
 
         ; set portamento stored frequency from channel's base pitch
@@ -269,7 +278,7 @@ nse_execSq_SetProperty:
 
         ; A <- next phrase byte
         txa
-        jsr nse_nextMacroByte
+        jsr nse_nextMacroByte_noloop
 
         ; set enable and possibly negate bits
         tay

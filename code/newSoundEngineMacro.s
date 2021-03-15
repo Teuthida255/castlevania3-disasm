@@ -17,19 +17,23 @@
         inc wMacro_start+2.w, X
         tay
         lda (wSoundBankTempAddr2), Y
-        bne @@@_macro_end\@
+        .ifndef MACRO_NO_LOOP
+            bne @@@_macro_end\@
 
-        ; only if macro lookup fails
-        ; A = 0
-        .ifndef MACRO_LOOP_ZERO
-            tay
-            lda (wSoundBankTempAddr2), Y
-            sta wMacro_start+2.w, X
-            bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
+            ; only if macro lookup fails
+            ; A = 0
+            .ifndef MACRO_LOOP_ZERO
+                tay
+                lda (wSoundBankTempAddr2), Y
+                sta wMacro_start+2.w, X
+                bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
+            .else
+                sta wMacro_start+2.w, X
+                beq @@@_macro_loop\@
+                .undef MACRO_LOOP_ZERO
+            .endif
         .else
-            sta wMacro_start+2.w, X
-            beq @@@_macro_loop\@
-            .undef MACRO_LOOP_ZERO
+            .undef MACRO_NO_LOOP
         .endif
 
     .ifdef MACRO_TRAMPOLINE_SPACE
@@ -82,6 +86,12 @@ nse_nextMacroByte:
     nse_nextMacroByte_inline_precalc_abaseaddr
 @rts:
     rts
+
+nse_nextMacroByte_noloop:
+    .define MACRO_NO_LOOP
+    nse_nextMacroByte_inline
+    rts
+
 
 ; A <- macro[A].offset; X <- 3A;
 .macro nse_getMacroOffsetinline
