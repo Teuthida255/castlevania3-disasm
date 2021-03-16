@@ -121,7 +121,6 @@ nse_nextMacroByte_noloop:
     nse_nextMacroByte_inline
     rts
 
-
 ; A <- macro[A].offset; X <- 3A;
 .macro nse_getMacroOffsetinline
     sta wNSE_genVar1

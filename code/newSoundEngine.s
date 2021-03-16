@@ -7,6 +7,21 @@
 .define SQ4_LO MMC5_PULSE2_LO
 .define SQ4_HI MMC5_PULSE2_HI
 
+; precondition:
+;   A = sfxid
+; result:
+;   sets Z if sfxid is looping, otherwise ~Z
+;
+; note: if this is ever edited so that there exist
+; non-looping sfx with lower priorities than looping sfx,
+; then the following changes need to be made:
+;  - insertion of looping sfx must eliminate all lower-priority non-looping sfx
+;  - insertion of an sfx must fail if a looping sfx is encountered with a higher priority
+; in all cases, looping sfx will always occupy the bottom of the pq.
+.macro sfxid_is_looping
+    cmp NSE_SFXIDX_LOOP_END
+.endm
+
 ; Channels - SQ 1/2, TRI, NOISE, DPCM, MMC5 PULSE 1/2
 nse_initSound:
     jsr nse_silenceAllSoundChannels
@@ -31,11 +46,397 @@ nse_initSound:
     lda #MUS_SILENCE
     ; FALLTHROUGH
 
+; preconditions:
+;   A = sound to play
+;   (status flags set for A)
 nse_playSound:
+    beq nse_playSFX@rts1
+    cmp #SND_MUSIC_START
+    bmi nse_playSFX
+    jmp nse_playMusic
+nse_playSFX:
+
+@setup_SFX:
+    .define wSFX_setup_sfx_duration wNSE_genVar0
+    .define wSFX_setup_sfxid wNSE_genVar1
+    .define wSFX_setup_sfx_offset wNSE_genVar2
+    .define wSFX_setup_pq_offset wNSE_genVar3
+    .define wSFX_setup_top_pri_has_changed wNSE_genVar4
+    .define wSFX_setup_remaining_pq_entries wNSE_genVar5
+    .define wSFX_setup_queue_end wNSE_genVar6
+    .define wSFX_setup_pq_full wNSE_genVar7
+
+    ; sfxid <- A
+    sta wSFX_setup_sfxid
+
+    ; wSoundBankTempAddr2 <- address of sfx
+    lda #<nse_emptySFX
+    sta wSoundBankTempAddr2
+    lda #>nse_emptySFX
+    sta wSoundBankTempAddr2+1
+    
+    ; (1 per sfx channel, indiciating if sfx is on or off)
+    ldx #$0
+    stx wSFX_setup_pq_offset ; offset from pq base
+    stx wSFX_setup_sfx_offset ; offset from sfx base
+    stx wSFX_setup_top_pri_has_changed ; which channels top-pri sfx changed as a result of this function?
+    stx wChannelIdx
+
+    ; loop over sfx channels
+
+@channelLoopTop:
+   ; A <- duration for sfx's channel X
+    ldy wSFX_setup_sfx_offset
+    lda (wSoundBankTempAddr2), y
+
+    ; if duration == 0, then the sfx does not use this channel.
+    beq @jmp_nextChannel
+@channelUsed: ; channel appears in sfx to be inserted
+    ; attempt to insert into priority queue
+
+    ; store sfx duration
+    sta wSFX_setup_sfx_duration
+
+    ; Y <- wSFX_setup_pq_offset
+    ldy wSFX_setup_pq_offset
+
+    ; determine if PQ is already full
+    lda sfxPQ+NSE_SFX_QUEUE_NUM_ENTRIES-1.w, y
+    sta wSFX_setup_pq_full
+
+    ; cache the topmost entry for comparison later
+    ; (so we can check if it has changed)
+    lda sfxPQ, y
+    pha
+    lda sfxPQ_TTL, y
+    pha
+
+    ; track number of remaining entries in queue to scan
+    ; (used as an iterator)
+    lda #NSE_SFX_QUEUE_NUM_ENTRIES
+    sta wSFX_setup_remaining_pq_entries
+
+    ; looping sfx have a different insertion method
+    lda wSFX_setup_sfx_duration
+    sfxid_is_looping
+    bmi @jmp_insertLoopingLoopTop
+
+@insertLoopTop:
+    ; A <- id of entry in pq
+    lda sfxPQ.w, y
+    beq @jmp_insertAtEmpty ; empty slot -- we can just insert here.
+
+    ; check if existing sfx is higher-pri than proposed sound.
+    cmp wSFX_setup_sfxid
+    bcc @insert
+    beq @insert
+
+    ; higher-pri effect than proposed sound
+    ; check if it would eclipse the proposed sound.
+
+    ; A <- TTL for entry in pq
+    lda sfxPQ_TTL.w, y
+    cmp wSFX_setup_sfx_duration ; compare again proposed sound's TTL
+    ; if eclipsed -- abort insertion.
+    bcs @nextChannel_noinsert
+
+    ; not eclipsed -- continue searching queue for somewhere to insert.
+
+@insertLoopNext:
+    iny
+    dec wSFX_setup_remaining_pq_entries
+    bne @insertLoopTop
+    beq @jmp_nextChannel ; guaranteed
+
+@rts1:
+    rts
+
+@jmp_insertLoopingLoopTop:
+    jmp @insertLoopingLoopTop
+
+@jmp_insertAtEmpty:
+    jmp @insertAtEmpty
+
+@insert:
+    ; insert sfx at position Y in queue..
+    ; we need to push the other queue elements down.
+
+    ; first, scan for any sfx that would be eclipsed and remove them.
+@evictEclipsed:
+    ; store Y (index in queue for insertion)
+    tya
+    pha
+
+    ; determine queue end
+    clc
+    adc wSFX_setup_remaining_pq_entries ; (-C)
+    adc #$ff ; subtracts 1
+    sta wSFX_setup_queue_end ; == queue end minus one
+
+@evictEclipsedLoopTop:
+    ; A <- TTL of proposed sfx
+    lda wSFX_setup_sfx_duration
+
+    ; compare against existing sound's TTL
+    ; if existing sound is longer than proposed sound,
+    ; then do not evict it.
+    cmp sfxPQ_TTL, y
+    bcc @evictEclipsedNext
+    
+    ; proposed sfx exceeds existing TTL
+    ; check if sfx loops, in which case, stop trying to evict.
+    lda sfxPQ, y
+    sfxid_is_looping
+    bmi @endEvictEclipse
+
+    ; doesn't loop -- evict!
+
+    ; store y (index in queue scanning for eclipsed sounds)
+    tya
+    pha
+
+    ; swap up  until we reach the bottom of the queue, then replace
+    ; bottom with empty.
+@evictLoopTop:
+    cpy wSFX_setup_queue_end
+    beq +
+
+    ; replace current with next
+    lda sfxPQ+1, y
+    sta sfxPQ, y
+    lda sfxPQ_TTL+1, y
+    sta sfxPQ_TTL, y
+
+@evictLoopNext:
+    iny
+    bne @evictLoopTop ; guaranteed
+
+@jmp_nextChannel:
+    jmp @nextChannel
+    
+ +  ; reached end of queue -- replace entry with 0
+    lda #$0
+    sta sfxPQ, y
+    sta sfxPQ_TTL, y
+
+    ; mark that there is empty space (for later)
+    sta wSFX_setup_pq_full
+
+    ; since an entry was removed, we shouldn't increment y.
+    ; (we need to check if the new entry is eclipsed as well.)
+    pla
+    tay
+    jmp @evictEclipsedLoopTop
+
+@evictEclipsedNext:
+
+    ; restore y and increment
+    pla
+    tay 
+    iny
+    bpl @evictEclipsedLoopTop ; guaranteed
+
+@endEvictEclipse:
+
+    ; uncache Y
+    pla
+    tay
+
+@insertNonLooping:
+    ; this sound does not loop.
+    ; check if existing pq sfx is looping -- if so, can't evict it.
+    ; however, if the queue is not full, then it's safe to insert before it.
+    lda wSFX_setup_pq_full
+    beq +
+        lda sfxPQ.w, y
+        ; (note: guaranteed that sfxid != 0, otherwise we'd be at @insertAtEmpty)
+        sfxid_is_looping
+        bcc @nextChannel
++
+    ; swap "proposed" sfx and sfx on pq
+    tax 
+    lda wSFX_setup_sfxid
+    beq @insertAtEmpty ; if this is empty, handle separately.
+    stx wSFX_setup_sfxid
+    sta sfxPQ.w, y
+
+    ; swap "proposed" sfx ttl and ttl on pq
+    lda wSFX_setup_sfx_duration
+    ldx sfxPQ_TTL.w, y
+    sta sfxPQ_TTL.w, y
+    stx wSFX_setup_sfx_duration
+
+    ; recurse, to bump the rest of the sfx down
+    ; -- unless we've reached the end of the queue.
+    dec wSFX_setup_remaining_pq_entries
+    bmi @nextChannel_checktopsfx
+
+    iny
+    bpl @insertNonLooping ; guaranteed
+
+@nextChannel_noinsert:
+    pla
+    pla
+    jmp @nextChannel
+
+@insertAtEmpty:
+    ; emplace sfx and duration at vacant slot.
+    lda wSFX_setup_sfxid
+    sta sfxPQ, y
+    lda wSFX_setup_sfx_duration
+    sta sfxPQ.w, y
+    ; fallthrough @nextChannel_checktopsfx
+
+@nextChannel_checktopsfx:
+    ; X <- channel idx
+    ; (we reused channel idx as a general register)
+    ldx wChannelIdx
+
+    ; determine if top entry has changed
+    ; pull prev top id
+    pla
+    sta wChannelIdx
+
+    ; pull prev top ttl
+    pla 
+    cmp sfxPQ_TTL, y
+    beq @newtopprisfx
+
+    lda wChannelIdx
+    cmp sfxPQ, y
+    bne @nextChannel
+
+    ; restore channel idx
+    stx wChannelIdx
+
+@newtopprisfx:
+    ; new sfx at top of pq
+    ; mark this for later.
+    lda bitIndexTable.w, x
+    ora wSFX_setup_top_pri_has_changed
+    sta wSFX_setup_top_pri_has_changed
+
+@nextChannel:
+    ; sfx base offset += 3
+    ; (sfx store three bytes per channel)
+    clc
+    lda wSFX_setup_sfx_offset
+    adc #$3
+    sta wSFX_setup_sfx_offset ; (-C)
+
+    ; sfx queue offset += sizeof(pq per channel)
+    lda wSFX_setup_pq_offset
+    adc #NSE_SFX_QUEUE_NUM_ENTRIES
+    sta wSFX_setup_pq_offset
+
+    ; next channel
+    inc wChannelIdx
+    lda wChannelIdx
+    cmp #NUM_SFX_CHANS
+    bpl +
+    jmp @channelLoopTop
+  +
+    ; loop complete.
+
+@replaceActiveSFX:
+    ; TODO: loop through wSFX_setup_top_pri_has_changed
+    ; begin playback for any marked sfx.
+    ldx #$FF
+    stx wChannelIdx
+-   inc wChannelIdx
+    asl wSFX_setup_top_pri_has_changed
+    bcc +
+    jsr nse_playTopSfx
+  + ldx wChannelIdx
+    cpx #NUM_SFX_CHANS
+    bmi -
+
+@rts:
+    rts
+
+@insertLoopingLoopTop:
+
+    ; determine if we need to evict something to have room for this sfx.
+    lda wSFX_setup_pq_full
+    beq @insertLoopingNoEvict
+
+    ; yes, an eviction is required.
+    ; check if top sfx is non-looping
+    lda sfxPQ.w, y
+    sfxid_is_looping
+    bpl @insertLoopingReplaceLooping
+    ; fallthrough insertLoopingReplaceLooping
+
+@insertLoopingReplaceLooping:
+    ; if the pq is full of looping sfx, do not allow another looping sfx in.
+    ; (sfx insertion fails.)
+    jmp @nextChannel_noinsert
+
+@nextInsertLoopingReplaceNonLooping:
+    iny
+    dec wSFX_setup_remaining_pq_entries
+    beq @nextChannel_noinsert
+@insertLoopingReplaceNonLooping:
+    ; evict lowest-pri non-looping sfx.
+    lda sfxPQ+1.w, y
+    sfxid_is_looping
+    bpl @nextInsertLoopingReplaceNonLooping
+
+    ; we've found the first looping sfx, so
+    ; replace the one before it.
+    lda wSFX_setup_sfxid
+    sta sfxPQ.w, y
+
+    lda wSFX_setup_sfx_duration
+    sta sfxPQ_TTL.w, y
+
+    ; now percolate down so that looping sfx remain priority-sorted
+@percolateDown:
+    dec wSFX_setup_remaining_pq_entries
+    beq @nextChannel_checktopsfx
+
+    lda sfxPQ.w, y
+    cmp sfxPQ+1.w, y
+    bcs @nextChannel_checktopsfx
+    ; swap
+    tax 
+    lda sfxPQ+1.w, y
+    sta sfxPQ.w, y
+    txa
+    sta sfxPQ+1.w, y
+
+    ldx sfxPQ_TTL+1.w, y
+    lda sfxPQ_TTL.w, y
+    sta sfxPQ_TTL+1.w, y
+    txa
+    sta sfxPQ_TTL.w, y
+
+    iny
+    jmp @percolateDown ; guaranteed
+
+@jmp_insertNonLooping:
+    jmp @insertNonLooping
+
+@insertLoopingNoEvict:
+    ; find first sfx with lower priority, then reuse
+    ; inserion logic.
+ -  lda wSFX_setup_sfxid
+    cmp sfxPQ, y
+    bcs @jmp_insertNonLooping
+    iny
+    bne - ; guaranteed
+
+; preconditions:
+;   wChannelIdx = current channel idx
+nse_playTopSfx:
+    ; TODO
+    rts
+
+nse_playMusic:
     cmp #MUS_PRELUDE
     beq @setup_MUS_PRELUDE
     cmp #MUS_SILENCE
-    bne nse_updateSound_rts
+    bne @rts
 
 @setup_MUS_SILENCE:
 @setup_MUS_PRELUDE:
@@ -90,9 +491,8 @@ nse_playSound:
     bne -
     ;fallthrough
 
-nse_updateSound_rts:
+@rts:
     rts
-
 
 nse_updateSound:
 @nse_updateMusic:
@@ -314,262 +714,4 @@ nse_silenceAllSoundChannels:
     sta MMC5_PULSE2_VOL.w
     rts
 
-; pointers to hardware struct for each channel
-_nse_hardwareTable_lo:
-    .db <SQ1_VOL
-    .db <SQ2_VOL
-    .db <TRI_LINEAR
-    .db <NOISE_VOL
-    .db UNUSED
-    .db <MMC5_PULSE1_VOL
-    .db <MMC5_PULSE2_VOL
-
-_nse_hardwareTable_hi:
-    .db >SQ1_VOL
-    .db >SQ2_VOL
-    .db >TRI_LINEAR
-    .db >NOISE_VOL
-    .db UNUSED
-    .db >MMC5_PULSE1_VOL
-    .db >MMC5_PULSE2_VOL
-
-pitchFrequencies_hi:
-    .db $07 ; A-0
-    .db $07 ; A#0
-    .db $07 ; B-0
-    .db $06 ; C-1
-    .db $06 ; C#1
-    .db $05 ; D-1
-    .db $05 ; D#1
-    .db $05 ; E-1
-    .db $04 ; F-1
-    .db $04 ; F#1
-    .db $04 ; G-1
-    .db $04 ; G#1
-    .db $03 ; A-1
-    .db $03 ; A#1
-    .db $03 ; B-1
-    .db $03 ; C-2
-    .db $03 ; C#2
-    .db $02 ; D-2
-    .db $02 ; D#2
-    .db $02 ; E-2
-    .db $02 ; F-2
-    .db $02 ; F#2
-    .db $02 ; G-2
-    .db $02 ; G#2
-    .db $01 ; A-2
-    .db $01 ; A#2
-    .db $01 ; B-2
-    .db $01 ; C-3
-    .db $01 ; C#3
-    .db $01 ; D-3
-    .db $01 ; D#3
-    .db $01 ; E-3
-    .db $01 ; F-3
-    .db $01 ; F#3
-    .db $01 ; G-3
-    .db $01 ; G#3
-    .db $00 ; A-3
-    .db $00 ; A#3
-    .db $00 ; B-3
-    .db $00 ; C-4
-    .db $00 ; C#4
-    .db $00 ; D-4
-    .db $00 ; D#4
-    .db $00 ; E-4
-    .db $00 ; F-4
-    .db $00 ; F#4
-    .db $00 ; G-4
-    .db $00 ; G#4
-    .db $00 ; A-4
-    .db $00 ; A#4
-    .db $00 ; B-4
-    .db $00 ; C-5
-    .db $00 ; C#5
-    .db $00 ; D-5
-    .db $00 ; D#5
-    .db $00 ; E-5
-    .db $00 ; F-5
-    .db $00 ; F#5
-    .db $00 ; G-5
-    .db $00 ; G#5
-    .db $00 ; A-5
-    .db $00 ; A#5
-    .db $00 ; B-5
-    .db $00 ; C-6
-    .db $00 ; C#6
-    .db $00 ; D-6
-    .db $00 ; D#6
-    .db $00 ; E-6
-    .db $00 ; F-6
-    .db $00 ; F#6
-    .db $00 ; G-6
-    .db $00 ; G#6
-    .db $00 ; A-6
-    .db $00 ; A#6
-    .db $00 ; B-6
-    .db $00 ; C-7
-    .db $00 ; C#7
-    .db $00 ; D-7
-
-pitchFrequencies_lo:
-    ; detuned from 440 Hz specifically for AoC.
-    
-    .db $DC ; A-0
-    .db $6B ; A#0
-    .db $00 ; B-0
-    .db $9C ; C-1
-    .db $ED ; C#1
-    .db $E3 ; D-1
-    .db $8E ; D#1
-    .db $3E ; E-1
-    .db $F3 ; F-1
-    .db $AC ; F#1
-    .db $69 ; G-1
-    .db $29 ; G#1
-    .db $ED ; A-1
-    .db $B5 ; A#1
-    .db $80 ; B-1
-    .db $4D ; C-2
-    .db $1E ; C#2
-    .db $F1 ; D-2
-    .db $C7 ; D#2
-    .db $9F ; E-2
-    .db $79 ; F-2
-    .db $55 ; F#2
-    .db $34 ; G-2
-    .db $14 ; G#2
-    .db $F6 ; A-2
-    .db $DA ; A#2
-    .db $BF ; B-2
-    .db $A6 ; C-3
-    .db $8E ; C#3
-    .db $78 ; D-3
-    .db $63 ; D#3
-    .db $4F ; E-3
-    .db $3C ; F-3
-    .db $2A ; F#3
-    .db $19 ; G-3
-    .db $0A ; G#3
-    .db $FB ; A-3
-    .db $EC ; A#3
-    .db $DF ; B-3
-    .db $D8 ; C-4
-    .db $C7 ; C#4
-    .db $BB ; D-4
-    .db $B1 ; D#4
-    .db $A7 ; E-4
-    .db $9D ; F-4
-    .db $95 ; F#4
-    .db $8C ; G-4
-    .db $84 ; G#4
-    .db $7D ; A-4
-    .db $76 ; A#4
-    .db $6F ; B-4
-    .db $69 ; C-5
-    .db $63 ; C#5
-    .db $6D ; D-5
-    .db $58 ; D#5
-    .db $53 ; E-5
-    .db $4E ; F-5
-    .db $4A ; F#5
-    .db $46 ; G-5
-    .db $42 ; G#5
-    .db $3E ; A-5
-    .db $3A ; A#5
-    .db $37 ; B-5
-    .db $34 ; C-6
-    .db $31 ; C#6
-    .db $2E ; D-6
-    .db $2B ; D#6
-    .db $29 ; E-6
-    .db $27 ; F-6
-    .db $24 ; F#6
-    .db $22 ; G-6
-    .db $20 ; G#6
-    .db $1E ; A-6
-    .db $1D ; A#6
-    .db $1B ; B-6
-    .db $19 ; C-7
-    .db $18 ; C#7
-    .dw $17 ; D-7
-
-nse_emptySong:
-    .db SONG_MACRO_DATA_OFFSET
-    .dsw NUM_CHANS, @nse_emptyChannelData ; channel data table
-    .db $10 ; use the first pattern (empty music pattern)
-    .db 0 ; end of loop
-
-@nse_emptyChannelData:
-@nse_nullTablePtr:
-.rept $10
-    .dw nullTable
-.endr
-@nse_silentPhrasePtr:
-    .dw nse_silentPhrase
-
-    
-nse_silentPhrase:
-    .db 1
-    .db $5F
-    .db 0
-
-channelMacroVibratoTable:
-    .db wMacro@Sq1_Vib-wMacro_start
-    .db wMacro@Sq2_Vib-wMacro_start
-    .db wMacro@Tri_Vib-wMacro_start
-    .db 0 ; 0 lets us beq to skip this.
-    .db 0
-    .db wMacro@Sq3_Vib-wMacro_start
-    .db wMacro@Sq4_Vib-wMacro_start
-
-channelMacroVolAddrTable_a2:
-    .db wMacro@Sq1_Vol-wMacro_start+2
-    .db wMacro@Sq1_Vol-wMacro_start+2
-    .db UNUSED
-    .db wMacro@Noise_Vol-wMacro_start+2
-    .db UNUSED
-    .db wMacro@Sq3_Vol-wMacro_start+2
-    .db wMacro@Sq4_Vol-wMacro_start+2
-channelMacroPortamentoAddrTable:
-channelMacroArpAddrTable:
-channelMacroBaseAddrTable:
-    .db wMacro_Sq1_Base-wMacro_start
-    .db wMacro_Sq1_Base-wMacro_start
-    .db wMacro_Tri_Base-wMacro_start
-    .db wMacro_Noise_Base-wMacro_start
-    .db UNUSED
-    .db wMacro_Sq3_Base-wMacro_start
-    .db wMacro_Sq4_Base-wMacro_start
-channelMacroEndAddrTable:
-    .db wMacro_Sq1_End-wMacro_start
-    .db wMacro_Sq2_End-wMacro_start
-    .db wMacro_Tri_End-wMacro_start
-    .db wMacro_Noise_End-wMacro_start
-    .db UNUSED
-    .db wMacro_Sq3_End-wMacro_start
-    .db wMacro_Sq4_End-wMacro_start
-bitIndexTable:
-    .db $01 $02 $04 $08 $10 $20 $40 $80
-
-volumeTable:
-    .db     15,14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
-    .db     14,13,12,11,10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1, 0
-    .db     13,12,11,10, 9, 8, 7, 6, 6, 5, 4, 3, 2, 1, 1, 0
-    .db     12,11,10, 9, 8, 8, 7, 6, 5, 4, 4, 3, 2, 1, 1, 0
-    .db     11,10, 9, 8, 8, 7, 6, 5, 5, 4, 3, 2, 2, 1, 1, 0
-    .db     10, 9, 8, 8, 7, 6, 6, 5, 4, 4, 3, 2, 2, 1, 1, 0
-    .db      9, 8, 7, 7, 6, 6, 5, 4, 4, 3, 3, 2, 1, 1, 1, 0
-    .db      8, 7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, 0
-    .db      7, 6, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 1, 1, 0
-    .db      6, 5, 5, 4, 4, 4, 3, 3, 2, 2, 2, 1, 1, 1, 1, 0
-    .db      5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 0
-    .db      4, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 0
-    .db      3, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-    .db      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-    .db      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-nullTable: ; 32 zeros in a row (also part of volume table above)
-    .rept 32
-    .db      0
-    .endr
+.include "code/newSoundEngineDataTables.s"

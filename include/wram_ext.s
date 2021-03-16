@@ -62,6 +62,7 @@
     
     ; music state ---------
     ; pitch is a 7-bit value representing a semitone value.
+    ; DPCM: hijacked as gv8
     wMusChannel_BasePitch:
         dsb NUM_CHANS
     
@@ -98,6 +99,16 @@
 
     ; end music state ----------
 
+    ; sfx priority queues
+    ; 1 pq per (sfx) channel
+    ; N sfx per queue
+    ; stores ID of sfx
+    sfxPQ:
+        dsb NUM_SFX_CHANS * NSE_SFX_QUEUE_NUM_ENTRIES
+
+    ; queue entry -- "time-to-live" (remaining duration
+    sfxPQ_TTL:
+        dsb NUM_SFX_CHANS * NSE_SFX_QUEUE_NUM_ENTRIES
 
     ; cache values -------------
 
@@ -134,16 +145,16 @@
     
     wMix_CacheReg_Noise_Vol:
         db
-    wMix_CacheReg_Noise_Unused: ; UNUSED
+    wNSE_genVar9w:
         db
     wMix_CacheReg_Noise_Lo:
         db
 
-    wMix_CacheReg_DPCM_A: ; UNUSED
+    wNSE_genVar10w:
         db
-    wMix_CacheReg_DPCM_B: ; UNUSED
+    wNSE_genVar11w:
         db
-    wMix_CacheReg_DPCM_C: ; UNUSED
+    wNSE_genVar12w:
         db
 
     wMix_CacheReg_Sq3_Vol:
@@ -295,3 +306,6 @@
 .define wMusChannel_Portamento wMusChannel_BaseDetune+NSE_DPCM
 
 .define wSFXChannelActive wMusChannel_BaseDetune+NSE_NOISE
+
+.define wNSE_genVar8w wMusChannel_BasePitch+NSE_DPCM
+.define wNSE_genVar9w wMusChannel_BasePitch+NSE_DPCM

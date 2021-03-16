@@ -1,4 +1,3 @@
-
 silenceAllSoundChannels:
 .ifdef SOUND_ENGINE
 	lda #PRG_ROM_SWITCH|:nse_silenceAllSoundChannels

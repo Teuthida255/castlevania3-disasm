@@ -73,9 +73,15 @@
     .define NSE_PULSE1 $05
     .define NSE_PULSE2 $06
     .define NUM_CHANS $07
+    .define NUM_SFX_CHANS $05
+
+    ; effects before this loop.
+    .define NSE_SFXIDX_LOOP_END $14
 
     .define NSE_SIZEOF_MACRO 3
     .define INSTRUMENTS_PER_CHANNEL $10
+
+    .define NSE_SFX_QUEUE_NUM_ENTRIES 3
 
     ; song struct format:
     .macro song_t
