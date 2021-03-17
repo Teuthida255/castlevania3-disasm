@@ -1,3 +1,13 @@
+nse_soundTable_lo:
+    # (filled in by buildSound.py)
+    .dsb NSE_MUSIC_START, <nse_emptySFX
+    .dsb NUM_SOUNDS-NSE_MUSIC_START, <nse_emptySong
+
+nse_soundTable_hi:
+    # (filled in by buildSound.py)
+    .dsb NSE_MUSIC_START, >nse_emptySFX
+    .dsb NUM_SOUNDS-NSE_MUSIC_START, >nse_emptySong
+
 ; songs (dummy)
 nse_emptySong:
     .db SONG_MACRO_DATA_OFFSET
@@ -12,7 +22,6 @@ nse_emptySong:
 .endr
 @nse_silentPhrasePtr:
     .dw nse_silentPhrase
-
     
 nse_silentPhrase:
     .db 1
@@ -272,3 +281,6 @@ nullTable: ; 32 zeros in a row (also part of volume table above)
     .rept 32
     .db      0
     .endr
+
+nse_soundData:
+    # (filled in by buildSound.py)

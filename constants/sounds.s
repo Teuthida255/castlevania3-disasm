@@ -74,6 +74,8 @@
     .define NSE_PULSE2 $06
     .define NUM_CHANS $07
     .define NUM_SFX_CHANS $05
+    .define NUM_SOUNDS 200
+    .define NSE_MUSIC_START $43
 
     ; effects before this loop.
     .define NSE_SFXIDX_LOOP_END $14

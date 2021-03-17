@@ -29,7 +29,7 @@ nse_initSound:
     lda #$7f
     sta SQ1_SWEEP.w
     sta SQ2_SWEEP.w
-
+ 
     ; enable noise, triangle, squares, but not dpcm (as it would start playing immediately).
 	lda #SNDENA_NOISE|SNDENA_TRI|SNDENA_SQ2|SNDENA_SQ1
 	sta SND_CHN.w
@@ -51,11 +51,12 @@ nse_initSound:
 ;   (status flags set for A)
 nse_playSound:
     beq nse_playSFX@rts1
+@music_idx_comparison:
     cmp #SND_MUSIC_START
     bmi nse_playSFX
     jmp nse_playMusic
 nse_playSFX:
-
+    DUMMY_RTS
 @setup_SFX:
     .define wSFX_setup_sfx_duration wNSE_genVar0
     .define wSFX_setup_sfxid wNSE_genVar1
@@ -70,9 +71,10 @@ nse_playSFX:
     sta wSFX_setup_sfxid
 
     ; wSoundBankTempAddr2 <- address of sfx
-    lda #<nse_emptySFX
+    tay
+    lda nse_soundTable_lo, y
     sta wSoundBankTempAddr2
-    lda #>nse_emptySFX
+    lda nse_soundTable_hi, y
     sta wSoundBankTempAddr2+1
     
     ; (1 per sfx channel, indiciating if sfx is on or off)
@@ -433,17 +435,13 @@ nse_playTopSfx:
     rts
 
 nse_playMusic:
-    cmp #MUS_PRELUDE
-    beq @setup_MUS_PRELUDE
-    cmp #MUS_SILENCE
-    bne @rts
-
 @setup_MUS_SILENCE:
 @setup_MUS_PRELUDE:
-    ; set song to empty song
-    lda #<nse_emptySong
+    ; set song to song from table
+    tay ; OPTIMIZE -- combine this with tay in playSFX at source dispatch (nse_playSound)
+    lda nse_soundTable_lo, y
     sta wMacro@Song.w
-    lda #>nse_emptySong
+    lda nse_soundTable_hi, y
     sta wMacro@Song+1.w
 
 @initMusic:

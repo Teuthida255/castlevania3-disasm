@@ -117,7 +117,7 @@ def ftParseTxt(path):
             })
         
         elif op == 'GROOVE':
-            assert len(z) - 3 == z[1], "groove length and data do not match
+            assert len(z) - 3 == z[1], "groove length and data do not match"
             grooves.append({
                 "index": z[0],
                 "length": z[1],
@@ -169,26 +169,25 @@ def ftParseTxt(path):
         elif op == ('PATTERN'):
             currPattern = x[0]
             patternData = tracks[-1]["patterns"]
-            patternData[currPattern] = []
+            patternData[currPattern] = [[] for i in tracks[-1]["columns"]]
 
         elif op == ('ROW'):
             currRow = x[0]
-            assert currRow == len(patternData[currPattern])
-            patternData[currPattern].append([])
-            patternData[currPattern]
-
+            assert currRow == len(patternData[currPattern][0])
+            instrIdx = 0
             currLCIdx = 3
             for numEffects in tracks[-1]["columns"]:
                 instrData = lc[currLCIdx:currLCIdx+numEffects+3]
                 instrData = [data if not ".....".startswith(data) else None for data in instrData]
                 currLCIdx += numEffects + 3 + 1 # skip : as well
 
-                patternData[currPattern][-1].append({
+                patternData[currPattern][instrIdx].append({
                     "note": instrData[0],
                     "instr": instrData[1],
                     "vol": instrData[2],
                     "effects": [effect for effect in instrData[3:] if effect],
                 })
+                instrIdx += 1
         else:
             assert False, "unknown token: \"" + op + "\""
     return data

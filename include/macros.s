@@ -178,3 +178,7 @@
         adc  #$80
         rol  A
 .endm
+
+.macro DUMMY_RTS
+    rts
+.endm

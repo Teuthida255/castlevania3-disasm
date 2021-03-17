@@ -10,13 +10,14 @@ ifdef ROMHACK
 		-D FASTER_STAIR_CLIMB \
 		-D MID_STAGE_PALETTE_SWAP \
 		-D SOUND_ENGINE \
+		-D INSERT_SOUND \
 		-D SCREEN_SHAKE
 endif
 
 castlevania3.bin: code/* include/* data/* game.s Makefile
 	wla-6502 ${DEFINES} -I . -o game.o game.s
-	wlalink -s linkfile castlevania3.bin
+	wlalink -s -S linkfile castlevania3.bin
 	rm game.o
 
-nes: castlevania3.bin
+nes: castlevania3.bin tools/*.py
 	python3 tools/buildNes.py ${DEFINES}

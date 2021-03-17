@@ -229,3 +229,5 @@
 
     .db $9e
     .include "code/bank1f.s"
+
+.print "Compile complete.\n"
