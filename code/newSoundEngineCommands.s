@@ -1,3 +1,19 @@
+.macro assert_not_noise
+    lda wChannelIdx_a1
+    cmp #NSE_NOISE+1
+    fail_if beq
+.endm
+
+.macro assert_not_dpcm
+    lda wChannelIdx_a1
+    cmp #NSE_DPCM+1
+    fail_if beq
+.endm
+
+.macro assert_nz
+    fail_if beq
+.endm
+
 nse_execDPCM:
     rts
 
@@ -66,13 +82,15 @@ nse_exec_Note:
 +
     ; detune accumulator <- 0
     lda #$0
-    sta wMusChannel_DetuneAccumulator_Lo.w, x
-    sta wMusChannel_DetuneAccumulator_Hi.w, x
+    sta wMusChannel_DetuneAccumulator_Lo-1.w, x
+    sta wMusChannel_DetuneAccumulator_Hi-1.w, x
 
-    ; reset vibrato index
+    ; reset vibrato index (
+
     ldy channelMacroVibratoTable-1.w, x
+    beq + ; skip if this channel doesn't have vibrato
     sta wMacro_start+2,y ; (A = 0)
-
++
     jmp nse_exec_readInstrWait
 
 ; preconditions:
@@ -83,6 +101,14 @@ nse_execSqTriNoise:
     cmp #$9B
     bcc nse_exec_Note
     beq nse_exec_readVolWait ; ("tie")
+
+    ; effects 9c-9f are invalid
+    .macro _assertf_nse_9c_9f
+        cmp #$A0
+        bcc @@@@fail
+    .endm
+    ASSERT _assertf_nse_9c_9f
+
     ; (+C)
     sbc #$B0 
     bcs nse_exec_effect
@@ -162,6 +188,13 @@ nse_setWait:
 ;   X = channel_idx + 1
 nse_exec_effect:
     beq nse_exec_release ; optional: remove this
+
+    .macro _assertf_nse_effect_max
+        cmp #$BD-$B0
+        bcs @@@@fail
+    .endm
+    ASSERT _assertf_nse_effect_max
+
 ; -----------------
 ; actual effects:
     asl
@@ -198,13 +231,29 @@ nse_exec_effect_channelBaseDetune:
 nse_exec_effect_channelArpXY:
     ; precondition: X = channel idx + 1
 
+    ; check if portamento was enabled
+    lda bitIndexTable-1.w, x
+    and wMusChannel_Portamento.w
+    beq +
+
     ; disable portamento on this channel
     ; (this is a documented side-effect)
-    lda #$FF
-    eor bitIndexTable-1.w, x
+    eor #$FF
     and wMusChannel_Portamento.w
     sta wMusChannel_Portamento.w
 
+    ; clear arp macro (it is invalid
+    ; because the space was used for portamento data)
+    lda channelMacroPortamentoAddrTable-1.w, x
+    tax 
+    lda #$0
+    sta wMacro_start.w, x
+    sta wMacro_start+1.w, x
+    sta wMacro_start+2.w, x
+
+    ; restore channel idx to X
+    ldx wChannelIdx_a1
++
     ; A <- next phrase byte
     txa
     jsr nse_nextMacroByte_noloop
@@ -216,19 +265,19 @@ nse_exec_effect_portamento:
 
     ; cancel arpxy (this is a documented side-effect)
     lda #$0
-    sta wMusChannel_ArpXY.w, x
+    sta wMusChannel_ArpXY-1.w, x
 
     ; set portamento flag for channel
-    lda bitIndexTable.w, x
+    lda bitIndexTable-1.w, x
     ora wMusChannel_Portamento.w
     sta wMusChannel_Portamento.w
 
-    ; GV1 <- offset of portamento base struct for channel
-    lda channelMacroPortamentoAddrTable.w, x
+    ; GV4 <- offset of portamento base struct for channel
+    lda channelMacroPortamentoAddrTable-1.w, x
     sta wNSE_genVar4
 
-    ; GV
-    lda wMusChannel_BasePitch.w, x
+    ; GV3 <- base pitch
+    lda wMusChannel_BasePitch-1.w, x
     sta wNSE_genVar3
 
     ; GV0 <- next phrase byte (portamento rate)
@@ -239,10 +288,10 @@ nse_exec_effect_portamento:
     ; set portamento stored frequency from channel's base pitch
 
     ; Y <- offset of portamento struct (stored/co-opted in macro dataspace)
-    ldy wNSE_genVar3
+    ldy wNSE_genVar4
 
     ; X <- base pitch
-    ldx wNSE_genVar4
+    ldx wNSE_genVar3
 
     lda pitchFrequencies_lo.w, x
     sta wMacro_start, y
@@ -256,16 +305,19 @@ nse_exec_effect_portamento:
     jmp nse_execChannelCommands_A
 
 nse_exec_effect_vibrato:
+    ASSERT assert_not_noise
+
     ; (X = channel idx + 1)
+    txa
     jsr nse_nextMacroByte_noloop
     sta wNSE_genVar0
-    ldx wChannelIdx_a1
+    lda wChannelIdx_a1
 
     jsr nse_nextMacroByte_noloop
     ldx wChannelIdx_a1
 
     ; vibrato hi <- second phrase byte
-    ldy channelMacroVibratoTable.w, x
+    ldy channelMacroVibratoTable-1.w, x
     sta wMacro_start+1, y
 
     ; vibrato lo <- first phrase byte
@@ -280,10 +332,12 @@ nse_exec_effect_vibrato:
     jmp nse_execChannelCommands
 
 nse_exec_effect_vibrato_cancel:
+    ASSERT assert_not_noise
     ; set hi byte of vibrato address to 0
     ; (this indicates vibrato is disabled)
     lda #$0
-    ldy channelMacroVibratoTable.w, x
+    ldy channelMacroVibratoTable-1.w, x
+    ASSERT assert_nz
     sta wMacro_start+1, y
     jmp nse_execChannelCommands
 
@@ -311,13 +365,14 @@ nse_exec_groove:
     jmp nse_execChannelCommands_A
 
 nse_exec_volume:
+    txa
     jsr nse_nextMacroByte_noloop
     ldx wChannelIdx_a1
     sta wMusChannel_BaseVolume-1.w, x
     jmp nse_execChannelCommands
 
 nse_exec_effect_hardwareSweep:
-    lda bitIndexTable.w, x
+    lda bitIndexTable-1.w, x
     and wSFXChannelActive.w
     bne + ; skip this if sfx active
 
@@ -343,7 +398,7 @@ nse_exec_effect_hardwareSweep:
 nse_exec_effect_hardwareSweepDisable:
     ; precondition: X = channel idx + 1
 
-    lda bitIndexTable.w, x
+    lda bitIndexTable-1.w, x
     and wSFXChannelActive.w
     bne + ; skip this if sfx active
 
@@ -360,7 +415,7 @@ nse_exec_effect_hardwareSweepDisable:
 
 nse_exec_effect_lengthCounter:
 nse_exec_effect_linearCounter:
-    lda bitIndexTable.w, x
+    lda bitIndexTable-1.w, x
     and wSFXChannelActive.w
     bne + ; skip this if sfx active
 

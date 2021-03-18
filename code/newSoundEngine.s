@@ -511,6 +511,13 @@ nse_updateSound:
 
 @nse_advanceFrame:
     ; get frame length from song data
+    .macro assert_songidx_valid
+        lda wMacro@Song+2.w
+        cmp #SONG_MACRO_DATA_OFFSET
+        fail_if bcc
+    .endm
+    ASSERT assert_songidx_valid
+
     jsr nse_nextSongByte
     sta wMusRowsToNextFrame_a1.w
 
@@ -528,9 +535,10 @@ nse_updateSound:
 
 @nse_advanceChannelRow:
     ; wMusTicksToNextRow <- getGrooveValue()
-    .define MACRO_BYTE_ABSOLUTE wMacro@Groove-wMacro_start
     lda wMacro@Groove+1.w
     beq +
+    .define MACRO_LOOP_ZERO
+    .define MACRO_BYTE_ABSOLUTE wMacro@Groove-wMacro_start
     nse_nextMacroByte_inline_precalc_abaseaddr
 +   bne ++
     ; default
@@ -563,7 +571,7 @@ nse_updateSound:
 -   ldx wChannelIdx
     lda bitIndexTable.w, x
     and wSFXChannelActive.w
-    sta wNSE_current_channel_is_unmasked
+    sta wNSE_current_channel_is_masked
     bne @sfx_tick
 @no_sfx_tick:
     jsr nse_musTick
@@ -615,17 +623,18 @@ nse_updateSound:
         +
     .endm
 
-    ;sqregset 1
-    ;sqregset 2
-    ;sqregset 3
+    ; DUMMYOUT
+    sqregset 1
+    sqregset 2
+    sqregset 3
     sqregset 4
 
     ; noise channel
     lda wMix_CacheReg_Noise_Vol.w
-    ;sta NOISE_VOL
+    sta NOISE_VOL
 
     lda wMix_CacheReg_Noise_Lo.w
-    ;sta NOISE_LO
+    sta NOISE_LO
     
     ; triangle channel needs special attention afterward
     ; (need to mute sometimes)

@@ -11,7 +11,8 @@ ifdef ROMHACK
 		-D MID_STAGE_PALETTE_SWAP \
 		-D SOUND_ENGINE \
 		-D INSERT_SOUND \
-		-D SCREEN_SHAKE
+		-D SCREEN_SHAKE \
+		-D DEBUG
 endif
 
 castlevania3.bin: code/* include/* data/* game.s Makefile

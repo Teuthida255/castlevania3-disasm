@@ -1,3 +1,8 @@
+.macro autofail
+    fail_if bpl
+    fail_if bmi
+.endm
+
 nse_musTickDPCM:
     rts
 
@@ -81,7 +86,9 @@ nse_musTickTri:
 
     asl wMusTri_Prev.w ; bit 7 <- bit 6
     ; if volume is 0, skip right over the length/state macro stuff.
+    ; TODO: reconsider this.
     lda wMusChannel_BaseVolume+NSE_TRI.w
+    and #$0F
     beq @setMuted
 
     ; if macro address is odd, this is a State macro; otherwise, Length.
@@ -140,7 +147,10 @@ nse_musTickSq_volzero:
     
     ; GV0 <- wMusChannel_BaseVolume
     lda wMusChannel_BaseVolume, y
-    bpl nse_musTickSq@before_setDutyCycle ; guaranteed jump (base channel top nibble is 0)
+    and #$0F ; remove alt (echo) volume
+    bpl nse_musTickSq@before_setDutyCycle
+
+    ASSERT autofail
 
 nse_musTickNoise:
 nse_musTickSq:
@@ -216,7 +226,9 @@ nse_musTickSq:
 @setDutyCycle:
     ; A <- duty cycle macro value, wNSE_genVar7 <- previous duty cycle offset value
     ldx wNSE_genVar5
-    nse_nextMacroByte_inline_precalc wNSE_genVar7
+    lda wMacro_start+1.w, x
+    beq @skipSetDutyCycle ; TODO / OPTIMIZE -- assert this out of existence.
+    nse_nextMacroByte_inline_precalc_abaseaddr wNSE_genVar7
     ldx nibbleParity
     bne +
         ; even frame -- restore previous macro offset and shift up nibble.
@@ -226,8 +238,10 @@ nse_musTickSq:
         sta wMacro_start+2.w, x
     + ; TODO: 4x-packed duty cycle values?
     ; assumption: macro bytes 4 and 5 are 1.
-    ; and #$F0 ; DUMMYOUT
-    lda #$2 ; we use square mid for now only
+    and #$F0
+    bit_skip_2
+@skipSetDutyCycle:
+    lda #%01110000 ; we use square mid for now only
     ora wNSE_genVar0 ; OR with volume
 
 @PHA_and_ora0011_then_setFrequency:
@@ -359,6 +373,10 @@ nse_musTickSq:
     .macro MACRO_TRAMPOLINE_9
         ; this is used when no detune macro is specified
         @@@noDetune:
+            ; everything that remains in this update can be skipped if sfx has priority.
+            lda wNSE_current_channel_is_masked
+            bne @detune@@maskedEarlyOut
+            
             ldx wChannelIdx
             lda #$80
             clc
@@ -368,17 +386,10 @@ nse_musTickSq:
             ; this is called when the tick routine exits partway through
             ; due to the sfx having priority.
 
-            ; this is probably overkill, but we increment the vibrato
-            ; macro even though we don't read it, because the vibrato
-            ; macro should technically always increment every frame.
-
             pla ; pop volume
 
-            lda channelMacroVibratoTable.w, x
-            beq @@@rts
-            tax
-            ; A <- vibrato 
-            jsr nse_nextMacroByte@precalc
+            ; TODO -- continue vibrato even when masked?
+            ; (requires zero-loop)
             
             ; (A ignored)
         
@@ -427,8 +438,8 @@ nse_musTickSq:
 
 @sumDetune:
     ; everything that remains in this update can be skipped if sfx has priority.
-    lda wNSE_current_channel_is_unmasked
-    beq @detune@@maskedEarlyOut
+    lda wNSE_current_channel_is_masked
+    bne @detune@@maskedEarlyOut
 
     ; wSoundBankTempAddr2 is macro base address; 3 bytes before it is the base detune offset.
     ; add base detune
@@ -445,7 +456,7 @@ nse_musTickSq:
     ; (requires C-)
     adc wSoundFrequency.w
     sta wSoundFrequency.w
-    bcc + ; instead of adding 1, just skip decrementing frequency hi.
+    bcs + ; instead of adding 1, just skip decrementing frequency hi.
 @decrementFrequencyHi:
     ; we have to decrement frequency hi because we are adding two "reverse-signed"
     ; values (i.e. values where $80 represents zero) as though they were unsigned.
@@ -482,7 +493,8 @@ nse_musTickSq:
     lda wMacro_start+1.w, x
     beq @doneDetune
 
-    ; A <- vibrato 
+    ; A <- vibrato
+    .define MACRO_LOOP_ZERO
     nse_nextMacroByte_inline_precalc_abaseaddr
     ; (-C)
     adc #$80
@@ -537,8 +549,8 @@ nse_musTickSq:
     ; precondition: A = absolute pitch (and junk in high nibble)
 
     ; early-out if sfx has priority
-    ldx wNSE_current_channel_is_unmasked
-    beq @pla_then_writeRegistersRTS
+    ldx wNSE_current_channel_is_masked
+    bne @pla_then_writeRegistersRTS
 
     ; gv0 <- absolute pitch modulo $F
     and #$F

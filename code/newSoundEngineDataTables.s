@@ -242,7 +242,7 @@ channelMacroVibratoTable:
 
 channelMacroVolAddrTable_a2:
     .db wMacro@Sq1_Vol-wMacro_start+2
-    .db wMacro@Sq1_Vol-wMacro_start+2
+    .db wMacro@Sq2_Vol-wMacro_start+2
     .db UNUSED
     .db wMacro@Noise_Vol-wMacro_start+2
     .db UNUSED
@@ -252,7 +252,7 @@ channelMacroPortamentoAddrTable:
 channelMacroArpAddrTable:
 channelMacroBaseAddrTable:
     .db wMacro_Sq1_Base-wMacro_start
-    .db wMacro_Sq1_Base-wMacro_start
+    .db wMacro_Sq2_Base-wMacro_start
     .db wMacro_Tri_Base-wMacro_start
     .db wMacro_Noise_Base-wMacro_start
     .db UNUSED

@@ -591,7 +591,7 @@ wCurrInstrumentDataAddr: ; $e0
 
     ; current channel is unmasked?
     ; (cached state)
-    wNSE_current_channel_is_unmasked:
+    wNSE_current_channel_is_masked:
         db
 .endu
 

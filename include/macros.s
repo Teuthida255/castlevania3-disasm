@@ -182,3 +182,31 @@
 .macro DUMMY_RTS
     rts
 .endm
+
+.macro fail_if
+    \1 @@@@fail
+.endm
+
+.macro fail_unless ARGS br
+    br @@@@pass
+    jmp @@@@fail
+.endm
+
+.macro ASSERT
+    .ifdef DEBUG
+        @@@assert\@:
+            php
+            pha
+            \1
+            jmp @@@@pass
+        @@@@fail:
+            pla
+            plp
+            sei
+            ; infinite loop
+            jmp @@@@pass-3
+        @@@@pass:
+            pla
+            plp
+    .endif
+.endm

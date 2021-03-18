@@ -55,7 +55,7 @@ def build(prg):
             write_bytes_at(prg, addr_soundtable_hi[0], addr_soundtable_hi[1] + 0x66, [(addr >> 8) & 0xff])
 
         # write chunk
-        print("writing chunk", chunk, "to bank", "$" + HX(bank), "at", "$" + HX(addr))
+        #print("writing chunk", chunk, "to bank", "$" + HX(bank), "at", "$" + HX(addr))
         # TODO: pass max addr as well
         addrpost = addr + write_chunk(chunk, prg, get_prg_addr(bank, addr), addr)
         outaddr = (bank, addrpost)

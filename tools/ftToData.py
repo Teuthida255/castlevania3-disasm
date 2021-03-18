@@ -13,6 +13,7 @@ ft = None
 
 NUM_CHANS = 7
 NUM_INSTRS = 0x10
+NSE_TRI = 2
 NSE_DPCM = 4
 NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
@@ -41,8 +42,8 @@ def get_song_loop_point(i):
 
 # returns None if not found
 def get_rows_in_phrase(pattern):
-    for i, instrrows in enumerate(pattern):
-        for row in instrrows:
+    for instrrows in pattern:
+        for i, row in enumerate(instrrows):
             for effect in row["effects"]:
                 if effect[0] == "D":
                     return i + 1
@@ -115,22 +116,55 @@ note_values = {
 opcodes = {
     # 0: "end of frame / loop frame"
     # 1 - 9A: notes (other than A-0)
+
+    # +1: (.n vol | .n wait)
     "tie": 0x9B,
+
     # 9C-9F: unused.
+
+    # +2: (.b pitch, .n vol | .n wait)
     "continue-pitch": 0xA0, # "slur"
+
+    # +0
     "cut": 0xA0, #A1-AF... lower nibble = wait
+
+    # +1: (.n vol | .n wait)
     "release": 0xB0,
+
+    # +2 (.w addr)
     "groove": 0xB1,
+
+    # +1 (.n alt | .n main)
     "volume": 0xB2,
-    "channel-pitch": 0xB3,
+
+    # +1 (.b pitch)
+    "detune": 0xB3,
+
+    # +1 (.n y | .n x)
     "arpxy": 0xB4,
+
+    # +2 (.w addr)
     "vibrato": 0xB5,
+
+    # +0
     "vibrato-cancel": 0xB6,
+
+    # +1 (.1 %1 | .3 speed | .1 negate | .3 shift)
     "sweep": 0xB7,
+
+    # +0
     "sweep-cancel": 0xB8,
+
+    # TODO
     "length-counter": 0xB9,
+
+    # TODO
     "linear-counter": 0xBA,
+
+    # +1 (.b rate)
     "portamento": 0xBB,
+
+    # +1 (.n vol | .n wait)
     "A-0": 0xBC, # all other notes equal 2*semitones + echo
 }
 
@@ -162,13 +196,16 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     track = ft["tracks"][song_idx]
     pattern = track["patterns"][pattern_idx]
     phrase = pattern[chan_idx]
-    data = [1] # (loop point)
+    loop_point = 1
+    data = [1] # (loop point -- can be rewritten later)
 
     if chan_idx == NSE_DPCM:
-        return [1, 1]
+        return [1, 1, 0]
     
     state_instr = None
     state_vol = None
+    if chan_idx == NSE_TRI:
+        state_vol = 0xF
     state_echo_vol = None
     state_echo_vol_pending_addr = -1
     state_note = None
@@ -246,7 +283,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 val = note[1:]
                 if val[0] == "-":
                     val = note[2]
-                val = int(val, 16)
+                val = int(val, 16) + 1
                 assert val - 1 < len(echo_buffer), "reaching into previous pattern not allowed for echo buffer"
                 note = echo_buffer[-val]
             else:
@@ -268,21 +305,23 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             args = effect[1:]
             argx = optional_hex(args)
             nibx = [optional_hex(args[0]), optional_hex(args[1])]
-            if op == "O":
+            if op == "B" or op == "D" or op == "C":
+                assert early_break, "phrase end encountered but not early break!"
+            elif op == "O":
                 # set groove
                 out_byte(opcodes["groove"])
                 data += [chunkptr(("groove", argx))]
             elif op == "P":
                 # fine pitch
                 # actually subtracts from pitch value, so the reciprocal value is applied
-                out_byte(opcodes["channel-pitch"])
+                out_byte(opcodes["detune"])
                 out_byte(0x100 - argx)
                 effect_applied = True
             elif op == "0":
                 # arpxy
                 effect_applied = True
                 out_byte(opcodes["arpxy"])
-                out_byte(argx)
+                out_nibbles(nibx[1], nibx[0])
             elif op == "3":
                 # portamento
                 out_byte(opcodes["portamento"])
@@ -330,6 +369,11 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             elif op in ["W", "X", "Y", "Z"]:
                 # DPCM stuff
                 pass
+            elif op == "V":
+                # TODO: set duty cycle
+                pass
+            else:
+                assert False, "unrecognized command: " + effect
         
         # write volume if it has changed
         vol_change = False
@@ -397,11 +441,12 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                     echo = True
 
                     if state_echo_vol_pending_addr >= 0:
-                        state_echo_vol_pending_addr = -1
                         state_echo_vol = state_vol
 
                         # write echo vol at previous location
                         data[state_echo_vol_pending_addr] |= (state_echo_vol << 4)
+
+                        state_echo_vol_pending_addr = -1
 
                     # swap states
                     state_vol = state_echo_vol
@@ -418,12 +463,13 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             if sweep_applied:
                 state_sweep = False
                 out_byte(opcodes["sweep-cancel"])
-            
+
             # write note bytecode proper.
             out_byte(note_opcode(note, echo))
 
             # instrument and wait
             assert state_instr != None, "cannot play note without setting instrument."
+            assert state_instr >= 0 and state_instr < 0x10, "instrument must be in range 0-F"
             out_nibbles(state_instr, 0)
             set_wait(row_idx)
         elif vol_change:
@@ -437,24 +483,28 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             out_nibbles(0, 0)
             set_wait(row_idx)
         
+        # this is the last row -- end loop and apply wait.
         if early_break or row_idx == len(phrase) - 1:
             # end of phrase
             set_wait(row_idx + 1)
             if state_sweep:
-                print("Warning: hardware sweep active at end of frame; cropping it.")
-                out_byte(opcodes["sweep-cancel"])
-            
+                print("Warning: hardware sweep active at end of frame!")
             break
-    
-    return data
+    data[0] = loop_point
+    assert len(data) > loop_point
+    assert data[loop_point] != 0 # this would cause an infinite loop
+    return data + [0] # add end-of-phrase marker (loop end)
 
 def make_vibrato_chunks():
     chunks = []
     for vibrato in vibrato_used:
         vibratostr = "4" + HX(vibrato[0]) + HX(vibrato[1])
+        assert -0x80 not in vibrato_json[vibratostr]
         chunks.append(chunk(
             ("vibrato", vibrato[0], vibrato[1]),
-            vibrato_json[vibratostr]
+            [
+                v + 0x80 for v in vibrato_json[vibratostr]
+            ] + [0]
         ))
     return chunks
 
