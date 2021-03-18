@@ -17,6 +17,16 @@ NSE_DPCM = 4
 NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
 
+macros_per_channel = [
+    4, # sq1
+    4, # sq2
+    3, # tri
+    2, # noise
+    0, # dpcm
+    4, # sq3
+    4  # sq4
+]
+
 def get_song_loop_point(i):
     ft_track = ft["tracks"][i]
     for frame in ft_track["frames"]:
@@ -48,8 +58,8 @@ def channel_chunk(song_idx, channel_idx):
         ("song", song_idx, "channel", channel_idx),
         [
             # instrument pointers
-            #*[chunkptr("song", song_idx, "channel", channel_idx, "instr", i) for i in range(NUM_INSTRS)],
-            *[0 for i in range(2*NUM_INSTRS)],
+            *[chunkptr("song", song_idx, "channel", channel_idx, "instr", i) for i in range(NUM_INSTRS)],
+            #*[0 for i in range(2*NUM_INSTRS)],
             #phrase pointers
             *[
                 chunkptr("song", song_idx, "channel", channel_idx, "phrase", ft_track["frames"][i][channel_idx]) for i in rlen(
@@ -463,6 +473,18 @@ def make_groove_chunks():
 # indexed as listed in 0cc's exported .txt
 phrase_chunks = dict()
 
+def make_instr_chunks():
+    chunks =  []
+    for track_idx, track in enumerate(ft["tracks"]):
+        for chan_idx in range(NUM_CHANS):
+            for instr_idx in range(NUM_INSTRS):
+                instrument = [0 for i in range(3 * macros_per_channel[chan_idx])]
+                chunks.append(chunk(
+                    ("song", track_idx, "channel", chan_idx, "instr", instr_idx),
+                    instrument
+                ))
+    return chunks
+
 def make_phrase_chunks():
     chunks =  []
     for track_idx, track in enumerate(ft["tracks"]):
@@ -494,7 +516,7 @@ def ft_to_data(path):
     global ft
     ft = ftParseTxt(path)
 
-    chunks = make_phrase_chunks()
+    chunks = make_instr_chunks() + make_phrase_chunks()
 
     chunks = make_vibrato_chunks() + make_groove_chunks() + chunks
 

@@ -47,6 +47,8 @@ def write_chunk(chunk, buff, i, address=None):
         i += steps
 
     chunk["addr"] = address
+    if (address == 0x9db4):
+        breakpoint()
     for d in chunk["data"]:
         if is_chunkptr(d):
             assert len(buff) - i >= 2

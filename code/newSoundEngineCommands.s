@@ -414,17 +414,17 @@ nse_exec_readInstrWait:
 -   ; (macro.lo <- instrTable[y++]
     lda (wSoundBankTempAddr1), Y
     iny
-    sta wMacro_start.w, x
+    ;sta wMacro_start.w, x ; DUMMY OUT
     inx
 
     ; (macro.hi <- instrTable[y++]
     lda (wSoundBankTempAddr1), Y
     iny
-    sta wMacro_start.w, x
+    ;sta wMacro_start.w, x ; DUMMY OUT
     inx
 
-    ; macro.offset <- 0
-    lda #$0
+    ; macro.offset <- 1 (after loop index byte)
+    lda #$1
     sta wMacro_start.w, x
     inx
 

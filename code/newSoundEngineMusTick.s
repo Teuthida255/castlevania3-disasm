@@ -226,7 +226,8 @@ nse_musTickSq:
         sta wMacro_start+2.w, x
     + ; TODO: 4x-packed duty cycle values?
     ; assumption: macro bytes 4 and 5 are 1.
-    and #$F0
+    ; and #$F0 ; DUMMYOUT
+    lda #$2 ; we use square mid for now only
     ora wNSE_genVar0 ; OR with volume
 
 @PHA_and_ora0011_then_setFrequency:

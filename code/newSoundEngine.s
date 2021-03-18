@@ -52,10 +52,8 @@ nse_initSound:
 nse_playSound:
     beq nse_playSFX@rts1
 @music_idx_comparison:
-    ;cmp #SND_MUSIC_START
-    ;bmi nse_playSFX
-    cmp #MUS_SILENCE
-    bne nse_playSFX
+    cmp #SND_MUSIC_START
+    bmi nse_playSFX
     jmp nse_playMusic
 nse_playSFX:
     DUMMY_RTS
@@ -617,9 +615,9 @@ nse_updateSound:
         +
     .endm
 
-    sqregset 1
-    sqregset 2
-    sqregset 3
+    ;sqregset 1
+    ;sqregset 2
+    ;sqregset 3
     sqregset 4
 
     ; noise channel

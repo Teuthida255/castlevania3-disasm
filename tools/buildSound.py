@@ -17,10 +17,6 @@ def get_prg_addr(bank, addr):
 def get_bank_addr(bank, addr):
     return get_prg_addr(bank, addr) - banksize * bank
 
-def get_bank(prg, bank):
-    bankbase = banksize * bank
-    return prg[bankbase:bankbase + banksize]
-
 # returns (bank, addr) at end of chunk written
 def write_bytes_at(prg, bank, addr, bytes):
     for i, byte in enumerate(bytes):
@@ -57,11 +53,11 @@ def build(prg):
         if chunk == ("song", 0):
             write_bytes_at(prg, addr_soundtable_lo[0], addr_soundtable_lo[1] + 0x66, [addr & 0xff])
             write_bytes_at(prg, addr_soundtable_hi[0], addr_soundtable_hi[1] + 0x66, [(addr >> 8) & 0xff])
-            
 
         # write chunk
         print("writing chunk", chunk, "to bank", "$" + HX(bank), "at", "$" + HX(addr))
-        addrpost = addr + write_chunk(chunk, get_bank(prg, bank), get_bank_addr(bank, addr), addr)
+        # TODO: pass max addr as well
+        addrpost = addr + write_chunk(chunk, prg, get_prg_addr(bank, addr), addr)
         outaddr = (bank, addrpost)
     print("bytes written:", hex(outaddr[1] - pre_addr))
     pre_addr = outaddr[1]
