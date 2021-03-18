@@ -52,8 +52,10 @@ nse_initSound:
 nse_playSound:
     beq nse_playSFX@rts1
 @music_idx_comparison:
-    cmp #SND_MUSIC_START
-    bmi nse_playSFX
+    ;cmp #SND_MUSIC_START
+    ;bmi nse_playSFX
+    cmp #MUS_SILENCE
+    bne nse_playSFX
     jmp nse_playMusic
 nse_playSFX:
     DUMMY_RTS
@@ -441,8 +443,10 @@ nse_playMusic:
     tay ; OPTIMIZE -- combine this with tay in playSFX at source dispatch (nse_playSound)
     lda nse_soundTable_lo, y
     sta wMacro@Song.w
+    sta wSoundBankTempAddr2
     lda nse_soundTable_hi, y
     sta wMacro@Song+1.w
+    sta wSoundBankTempAddr2+1
 
 @initMusic:
     ; default values for music
@@ -451,9 +455,6 @@ nse_playMusic:
     stx wMusRowsToNextFrame_a1.w
     ldx #SONG_MACRO_DATA_OFFSET
     stx wMacro@Song+2.w ; song start
-
-    ; load channel dataset pointer
-    copy_word_X wMacro@Song.w, wSoundBankTempAddr2.b
     
     ; initialize music channel state
     ; loop(channels)
@@ -461,10 +462,14 @@ nse_playMusic:
 -   lda #$0
     sta wMusChannel_BaseVolume-1.w, y
     sta wMusChannel_ArpXY-1.w, y
+    cpy #NSE_DPCM+1
+    beq +
+    cpy #NSE_NOISE+1
+    beq +
     lda #$80
     sta wMusChannel_BaseDetune-1.w, y
     ; no need to set pitch; volume is 0.
-    dey
+  + dey
     bne -
 
     lda #$0
@@ -526,7 +531,13 @@ nse_updateSound:
 @nse_advanceChannelRow:
     ; wMusTicksToNextRow <- getGrooveValue()
     .define MACRO_BYTE_ABSOLUTE wMacro@Groove-wMacro_start
-    nse_nextMacroByte_inline_precalc
+    lda wMacro@Groove+1.w
+    beq +
+    nse_nextMacroByte_inline_precalc_abaseaddr
++   bne ++
+    ; default
+    lda #$8
+++
     ; we don't need to add 1 as decrement occurs next frame.
     sta wMusTicksToNextRow_a1.w
 
@@ -539,7 +550,7 @@ nse_updateSound:
     jsr nse_execChannelCommands
     ldx wChannelIdx_a1 ; pop x
 +   dex
-    beq -
+    bne -
 
 @frameTick:
     
@@ -613,10 +624,10 @@ nse_updateSound:
 
     ; noise channel
     lda wMix_CacheReg_Noise_Vol.w
-    sta NOISE_VOL
+    ;sta NOISE_VOL
 
     lda wMix_CacheReg_Noise_Lo.w
-    sta NOISE_LO
+    ;sta NOISE_LO
     
     ; triangle channel needs special attention afterward
     ; (need to mute sometimes)
@@ -677,8 +688,10 @@ nse_setChannelPhrase:
     lda (wSoundBankTempAddr2), y
     sta wSoundBankTempAddr1+1
 
-    ; Y <- (input A)
+    ; Y <- (input A) * 2
+    ; (offset of phrase address from channel base)
     txa
+    asl
     tay
 
     ; X <- 3 * wChannelIdx

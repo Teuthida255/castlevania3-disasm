@@ -73,6 +73,13 @@ def chunkptr(*args):
         "ptr": label
     }
 
+def chunkaddr(ptr):
+    if is_chunkptr(ptr):
+        ptr = ptr["ptr"]
+    if is_chunk(ptr):
+        ptr = ptr["label"]
+    return chunkmap[label]["addr"]
+
 def deref_chunkptr(ptr):
     label = ptr["ptr"]
     if label in chunkmap:

@@ -113,6 +113,6 @@
 
     
 
-    .define MUS_SILENCE $FF
+    .define MUS_SILENCE $43
     
 .endif

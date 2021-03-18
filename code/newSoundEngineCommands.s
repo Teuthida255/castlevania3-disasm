@@ -90,6 +90,7 @@ nse_execSqTriNoise:
     and #$0F
     beq nse_exec_slur
     ; fallthrough nse_exec_Cut
+    ; A1..AF
 
 ; preconditions:
 ;   A = amount to wait, A != 0

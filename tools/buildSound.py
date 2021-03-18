@@ -3,11 +3,6 @@ import ftToData
 from chunks import *
 from utils import *
 
-sound_replacements = {
-    # replace song 66 with track 0
-    0x66: 0
-}
-
 # base addresses for each bank
 # (assumes bank is only ever loaded into one spot in RAM)
 bankorg = {
@@ -37,25 +32,34 @@ def write_bytes_at(prg, bank, addr, bytes):
 def write_word_at(prg, bank, addr, word):
     return write_bytes_at(prg, bank, addr, [word & 0xff, (word >> 8) & 0xff])
 
+def add_addr(bank, addr, offset):
+    return (bank, addr + offset)
+
 def build(prg):
     symbols = symparser.symparse("castlevania3.sym")
-    print(symbols["nse_soundTable_lo"])
-    print(symbols["nse_soundTable_hi"])
+    addr_soundtable_lo = symbols["nse_soundTable_lo"]
+    addr_soundtable_hi = symbols["nse_soundTable_hi"]
     print(symbols["nse_soundData"])
     chunks = ftToData.ft_to_data("resources/AoC_Demo.txt")
     chunklabels = [chunk["label"] for chunk in chunks]
     
-    # write grooves
+    # write chunks
     outaddr = symbols["nse_soundData"]
     pre_addr = outaddr[1]
     for chunk in chunklabels:
+        bank = outaddr[0]
+        addr = outaddr[1]
+
         # let's not write the song table, because we are not using that yet.
         if chunk[0] == "song_table":
             continue
+        
+        if chunk == ("song", 0):
+            write_bytes_at(prg, addr_soundtable_lo[0], addr_soundtable_lo[1] + 0x66, [addr & 0xff])
+            write_bytes_at(prg, addr_soundtable_hi[0], addr_soundtable_hi[1] + 0x66, [(addr >> 8) & 0xff])
+            
 
         # write chunk
-        bank = outaddr[0]
-        addr = outaddr[1]
         print("writing chunk", chunk, "to bank", "$" + HX(bank), "at", "$" + HX(addr))
         addrpost = addr + write_chunk(chunk, get_bank(prg, bank), get_bank_addr(bank, addr), addr)
         outaddr = (bank, addrpost)

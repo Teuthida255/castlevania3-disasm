@@ -120,10 +120,9 @@ nse_musTickTri:
     lda #%10000000 ; volume
 
 @epilogue:
-    pha ; push volume
-    ldy NSE_TRI ; this is wChannelIdx
+    ldy #NSE_TRI ; this is wChannelIdx
     ; read arp and detune macros as normal.
-    jmp nse_musTickSq@setFrequency
+    jmp nse_musTickSq@PHA_then_setFrequency
 
 nse_musTickSq_volzero:
     ; update nibble parity
@@ -141,8 +140,7 @@ nse_musTickSq_volzero:
     
     ; GV0 <- wMusChannel_BaseVolume
     lda wMusChannel_BaseVolume, y
-    sta wNSE_genVar0
-    bpl nse_musTickSq@setDutyCycle ; guaranteed jump (base channel top nibble is 0)
+    bpl nse_musTickSq@before_setDutyCycle ; guaranteed jump (base channel top nibble is 0)
 
 nse_musTickNoise:
 nse_musTickSq:
@@ -206,28 +204,34 @@ nse_musTickSq:
     tax
     lda volumeTable.w, x
 
+@before_setDutyCycle:
     ; skip duty cycle for noise channel (just push volume)
     ; NOISE ------------------------
     cpy #NSE_NOISE
-    beq @PHA_then_setFrequency
+    beq @PHA_and_ora0011_then_setFrequency
     ; NOISE end --------------------
 
     sta wNSE_genVar0 ; GV0 <- volume
 
 @setDutyCycle:
-    ; A <- duty cycle macro value, wNSE_genVar5 <- previous duty cycle offset value
+    ; A <- duty cycle macro value, wNSE_genVar7 <- previous duty cycle offset value
     ldx wNSE_genVar5
-    nse_nextMacroByte_inline_precalc wNSE_genVar5
-    ldy nibbleParity
+    nse_nextMacroByte_inline_precalc wNSE_genVar7
+    ldx nibbleParity
     bne +
         ; even frame -- restore previous macro offset and shift up nibble.
         shift 4
-        lda wNSE_genVar5
+        lda wNSE_genVar7
+        ldx wNSE_genVar5
         sta wMacro_start+2.w, x
     + ; TODO: 4x-packed duty cycle values?
     ; assumption: macro bytes 4 and 5 are 1.
     and #$F0
     ora wNSE_genVar0 ; OR with volume
+
+@PHA_and_ora0011_then_setFrequency:
+    ; enable certain important bits in volume channel (for noise and square)
+    ora #%00110000
 
 @PHA_then_setFrequency:
     pha ; store volume for later.
@@ -239,6 +243,10 @@ nse_musTickSq:
     ; get arpeggio (pitch offset)
     ; precondition: y = channel idx
 
+    ; x <- offset of arp address
+    ldx channelMacroArpAddrTable.w, y
+    stx wNSE_genVar5 ; store offset for arp macro table
+
     ; check if portamento enabled -- if so, do that instead of arpeggio
     ; (arpeggio and portamento are mutually exclusive)
     lda bitIndexTable, y
@@ -246,10 +254,6 @@ nse_musTickSq:
     beq +
     jmp @doPortamento
 +
-
-    ; x <- offset of arp address
-    ldx channelMacroArpAddrTable.w, y
-    stx wNSE_genVar5 ; store offset for arp macro table
 
     ; A <- next arpeggio macro value
     lda wMacro_start+1.w, x ; skip if macro is zero.
@@ -354,6 +358,7 @@ nse_musTickSq:
     .macro MACRO_TRAMPOLINE_9
         ; this is used when no detune macro is specified
         @@@noDetune:
+            ldx wChannelIdx
             lda #$80
             clc
             bne @_adcFrequencyLo ; guaranteed
@@ -365,6 +370,8 @@ nse_musTickSq:
             ; this is probably overkill, but we increment the vibrato
             ; macro even though we don't read it, because the vibrato
             ; macro should technically always increment every frame.
+
+            pla ; pop volume
 
             lda channelMacroVibratoTable.w, x
             beq @@@rts
@@ -477,7 +484,6 @@ nse_musTickSq:
     ; A <- vibrato 
     nse_nextMacroByte_inline_precalc_abaseaddr
     ; (-C)
-    ldx wChannelIdx_a1 ; (needed for @doneDetune later)
     adc #$80
     bmi @negativeVibrato
     
@@ -500,6 +506,7 @@ nse_musTickSq:
     + clc
 
 @doneDetune:
+    ldx wChannelIdx
 
 @writeRegisters:
     ; pre-requisites:
@@ -522,7 +529,7 @@ nse_musTickSq:
     sta wMix_CacheReg_start+1.w, y
     lda wSoundFrequency+1
     sta wMix_CacheReg_start+2.w, y
-@writeRegistersRTS
+@writeRegistersRTS:
     rts
 
 @NoiseArpEpilogue:
@@ -530,7 +537,7 @@ nse_musTickSq:
 
     ; early-out if sfx has priority
     ldx wNSE_current_channel_is_unmasked
-    beq @writeRegistersRTS
+    beq @pla_then_writeRegistersRTS
 
     ; gv0 <- absolute pitch modulo $F
     and #$F
@@ -549,7 +556,9 @@ nse_musTickSq:
     pla
     ora #%00110000
     sta wMix_CacheReg_Noise_Vol.w
-
+    bit_skip_1
+@pla_then_writeRegistersRTS:
+    pla
     rts
 
 ; --------------

@@ -41,7 +41,7 @@ with open('castlevania3.sym') as f:
             # skip filler names
             continue
         
-        if (idx(bank, addr), addr) in used:
+        if (idx(bank, addr), addr) in used and not name.startswith("wNSE_genVar"):
             continue
         else:
             used.add((idx(bank, addr), addr))

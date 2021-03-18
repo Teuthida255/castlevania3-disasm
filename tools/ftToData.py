@@ -152,10 +152,10 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     track = ft["tracks"][song_idx]
     pattern = track["patterns"][pattern_idx]
     phrase = pattern[chan_idx]
-    data = []
+    data = [1] # (loop point)
 
     if chan_idx == NSE_DPCM:
-        return [1]
+        return [1, 1]
     
     state_instr = None
     state_vol = None
@@ -261,7 +261,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             if op == "O":
                 # set groove
                 out_byte(opcodes["groove"])
-                data += [chunkptr(("song", song_idx, "groove", argx))]
+                data += [chunkptr(("groove", argx))]
             elif op == "P":
                 # fine pitch
                 # actually subtracts from pitch value, so the reciprocal value is applied
@@ -448,14 +448,13 @@ def make_vibrato_chunks():
         ))
     return chunks
 
-def make_groove_chunks(track_idx):
-    track = ft["tracks"][track_idx]
+def make_groove_chunks():
     grooves = ft["groove"]
     chunks = []
     for groove in grooves:
         assert 0 not in groove["data"]
         chunks.append(chunk(
-            ("song", track_idx, "groove", groove["index"]),
+            ("groove", groove["index"]),
             groove["data"] + [0] # add end marker
         ))
     return chunks
@@ -467,7 +466,6 @@ phrase_chunks = dict()
 def make_phrase_chunks():
     chunks =  []
     for track_idx, track in enumerate(ft["tracks"]):
-        chunks += make_groove_chunks(track_idx)
         phrase_chunks[track_idx] = [[] for i in range(NUM_CHANS)]
         for pattern_idx in track["patterns"]:
             pattern = track["patterns"][pattern_idx]
@@ -498,7 +496,7 @@ def ft_to_data(path):
 
     chunks = make_phrase_chunks()
 
-    chunks = make_vibrato_chunks() + chunks
+    chunks = make_vibrato_chunks() + make_groove_chunks() + chunks
 
     chunks += [
         *[channel_chunk(i, j) for i in range(len(ft["tracks"])) for j in range(NUM_CHANS)],
