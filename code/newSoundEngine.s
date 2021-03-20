@@ -38,6 +38,12 @@ nse_initSound:
     lda #SNDENA_MMC5_PULSE2|SNDENA_MMC5_PULSE1
     sta MMC5_STATUS.w
 
+    ; fix noise length counter on.
+    lda #$30
+    sta NOISE_VOL
+    lda #$F0
+    sta NOISE_HI
+
     ; todo: reset structs/other control bytes
     lda #$0
     sta wSFXChannelActive.w
@@ -542,7 +548,7 @@ nse_updateSound:
     nse_nextMacroByte_inline_precalc_abaseaddr
 +   bne ++
     ; default
-    lda #$8
+    lda #$6
 ++
     ; we don't need to add 1 as decrement occurs next frame.
     sta wMusTicksToNextRow_a1.w

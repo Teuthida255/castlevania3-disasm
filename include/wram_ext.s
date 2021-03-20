@@ -138,16 +138,16 @@
 
     wMix_CacheReg_Tri_Vol:
         db
-    wMix_CacheReg_Tri_Hi:
-        db
     wMix_CacheReg_Tri_Lo:
+        db
+    wMix_CacheReg_Tri_Hi:
         db
     
     wMix_CacheReg_Noise_Vol:
         db
-    wNSE_genVar9w:
-        db
     wMix_CacheReg_Noise_Lo:
+        db
+    wNSE_genVar9w:
         db
 
     wNSE_genVar10w:
@@ -232,6 +232,13 @@
             dsb 3
         wMacro@Sq1_Vol:
             dsb 3
+        ; duty macro offset (on all channels) is co-opted to store duty cycle if
+        ; no duty macro is specified (i.e. if addr hi == 0).
+        ; duty cycle is stored as:
+        ; 0 -> %00110000
+        ; 1 -> %01110000
+        ; 2 -> %10110000
+        ; 3 -> %11110000
         wMacro@Sq1_Duty:
             dsb 3
 

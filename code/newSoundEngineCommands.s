@@ -14,6 +14,16 @@
     fail_if beq
 .endm
 
+.macro assert_X_eq_wchannelidx
+    cpx wChannelIdx_a1
+    fail_if bne
+.endm
+
+.macro assert_A_eq_wchannelidx
+    cmp wChannelIdx_a1
+    fail_if bne
+.endm
+
 nse_execDPCM:
     rts
 
@@ -47,6 +57,7 @@ nse_execChannelCommands:
 ;    wChannelIdx_a1 = channel idx + 1
 ;    A = channel_idx + 1
 nse_execChannelCommands_A:
+    ASSERT assert_A_eq_wchannelidx
     ; retrieve command byte for channel idx
     nse_nextMacroByte_inline
     ; A is now the next command byte
@@ -75,7 +86,7 @@ nse_exec_Note:
     sta wMusChannel_BasePitch-1.w, x
 
     bcc +
-    ; swap echo volume if 
+    ; swap echo volume
     lda wMusChannel_BaseVolume-1.w, x
     swap_nibbles
     sta wMusChannel_BaseVolume-1.w, x
@@ -371,10 +382,19 @@ nse_exec_volume:
     sta wMusChannel_BaseVolume-1.w, x
     jmp nse_execChannelCommands
 
+nse_exec_skip_byte:
+    ; precondition:
+    ;   X = channel idx + 1
+    txa
+    jsr nse_nextMacroByte_noloop
+    lda wChannelIdx_a1
+    jmp nse_execChannelCommands_A
+
 nse_exec_effect_hardwareSweep:
+    ; skip this if sfx active (but read a byte anyway)
     lda bitIndexTable-1.w, x
     and wSFXChannelActive.w
-    bne + ; skip this if sfx active
+    bne nse_exec_skip_byte
 
     ; tempaddr1 <- sweep address
     lda _nse_hardwareTable_lo-1.w, x
@@ -393,7 +413,10 @@ nse_exec_effect_hardwareSweep:
     ; hardware sweep register <- A
     ldy #$1
     sta (wSoundBankTempAddr1), y
- +  jmp nse_execChannelCommands
+
+    ; next command
+    lda wChannelIdx_a1
+    jmp nse_execChannelCommands_A
 
 nse_exec_effect_hardwareSweepDisable:
     ; precondition: X = channel idx + 1
@@ -467,22 +490,29 @@ nse_exec_readInstrWait:
     ; initialize macros to instrument defaults
     ; loop(channel macro data)
 -   ; (macro.lo <- instrTable[y++]
-    lda (wSoundBankTempAddr1), Y
+    ;lda (wSoundBankTempAddr1), Y; DUMMY OUT
+    lda #$0 ; DUMMY OUT
+    sta wMacro_start.w, x
     iny
-    ;sta wMacro_start.w, x ; DUMMY OUT
     inx
 
     ; (macro.hi <- instrTable[y++]
-    lda (wSoundBankTempAddr1), Y
+    ;lda (wSoundBankTempAddr1), Y
+    lda #$0 ; DUMMY OUT
+    beq @macro_zero
+    sta wMacro_start.w, x
     iny
-    ;sta wMacro_start.w, x ; DUMMY OUT
     inx
 
     ; macro.offset <- 1 (after loop index byte)
+    ; however, we skip this if macro hi is not set,
+    ; because sometimes extra info is stored in
+    ; the macro offset byte when the macro is disabled
     lda #$1
     sta wMacro_start.w, x
     inx
 
+@setmacros_loopnext:
     cpx wNSE_genVar1
     bmi -
     ; (end of loop)
@@ -497,3 +527,8 @@ nse_exec_readInstrWait:
 @setWait:
     ; assumes x = channel idx + 1
     jmp nse_execSetWaitFromLowNibbleGV2
+
+@macro_zero:
+    iny
+    inx
+    bne @setmacros_loopnext ; guaranteed

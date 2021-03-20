@@ -14,6 +14,7 @@ ft = None
 NUM_CHANS = 7
 NUM_INSTRS = 0x10
 NSE_TRI = 2
+NSE_NOISE = 3
 NSE_DPCM = 4
 NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
@@ -76,7 +77,7 @@ def song_chunk(i):
     return chunk(
         ("song", i),
         [
-            get_song_loop_point(i) + 2 * NUM_CHANS + 1,
+            get_song_loop_point(i) * (NUM_CHANS + 1) + 2 * NUM_CHANS + 1,
             # instrument/channel tables
             *[chunkptr(("song", i, "channel", j)) for j in range(NUM_CHANS)],
             # phrase data
@@ -192,6 +193,32 @@ def get_note_value_from_str(note):
 
     assert False, "unknown note value: " + note
 
+# extra track data created at preprocess time
+track_data = []
+
+def preprocess_tracks():
+    for track_idx, track in enumerate(ft["tracks"]):
+        data = {
+            "patterns": []
+        }
+        track_data.append(data)
+        for pattern_idx in track["patterns"]:
+            pattern_data = {
+                "channels": []
+            }
+            data["patterns"].append(pattern_data)
+            pattern = track["patterns"][pattern_idx]
+            for chan_idx, chan in enumerate(pattern):
+                channel_data = {
+                    "rows": []
+                }
+                pattern_data["channels"].append(channel_data)
+                for row_idx, row in enumerate(chan):
+                    row_data = {
+                        "effects": []
+                    }
+                    channel_data["rows"].append(row_data)
+
 def make_phrase_data(song_idx, chan_idx, pattern_idx):
     track = ft["tracks"][song_idx]
     pattern = track["patterns"][pattern_idx]
@@ -204,12 +231,13 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     
     state_instr = None
     state_vol = None
-    if chan_idx == NSE_TRI:
-        state_vol = 0xF
     state_echo_vol = None
     state_echo_vol_pending_addr = -1
     state_note = None
     state_sweep = False
+
+    # preprocesser channel data
+    channel_pdata = track_data[song_idx]["patterns"][pattern_idx]["channels"][chan_idx]
 
     phrase_len = get_rows_in_phrase(pattern) or track["patternLength"]
     assert len(phrase) == track["patternLength"]
@@ -257,6 +285,9 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             
 
     for row_idx, row in enumerate(phrase):
+        #preprocessor row data
+        row_pdata = channel_pdata["rows"][row_idx]
+
         note = row["note"]
         instr = row["instr"]
         effects = row["effects"]
@@ -300,7 +331,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
         # first write effects
         effect_applied = False
         sweep_applied = False
-        for effect in effects:
+        for effect in effects + row_pdata["effects"]:
             op = effect[0]
             args = effect[1:]
             argx = optional_hex(args)
@@ -309,6 +340,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 assert early_break, "phrase end encountered but not early break!"
             elif op == "O":
                 # set groove
+                effect_applied = True
                 out_byte(opcodes["groove"])
                 data += [chunkptr(("groove", argx))]
             elif op == "P":
@@ -324,11 +356,12 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 out_nibbles(nibx[1], nibx[0])
             elif op == "3":
                 # portamento
+                effect_applied = True
                 out_byte(opcodes["portamento"])
                 out_byte(argx)
-                effect_applied = True
             elif op == "4":
                 effect_applied = True
+                assert chan_idx != NSE_NOISE, "noise channel does not support vibrato"
                 if nibx[0] == 0 or nibx[1] == 0:
                     # cancel vibrato
                     out_byte(opcodes["vibrato-cancel"])
@@ -353,9 +386,9 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                     out_byte(opcodes["sweep"])
                     out_nibbles(nibx[0] | 8, nibx[1] | negate_flag)
             elif effect[0:2] == "EE":
+                effect_applied = True
                 # disable length/linear counter
                 # TODO
-                effect_applied = True
                 pass
             elif op == "E":
                 # alternative volume-set command
@@ -370,6 +403,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 # DPCM stuff
                 pass
             elif op == "V":
+                effect_applied = True
                 # TODO: set duty cycle
                 pass
             else:
@@ -435,7 +469,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             echo = False # TODO: echo notes?
             
             # write volume change if necessary
-            if vol_change:
+            if vol_change or wait_data["state_cut"]:
                 if state_echo_vol == state_vol or state_echo_vol_pending_addr >= 0:
                     # swap in echo volume
                     echo = True
@@ -565,6 +599,8 @@ def make_phrase_chunks():
 def ft_to_data(path):
     global ft
     ft = ftParseTxt(path)
+
+    preprocess_tracks()
 
     chunks = make_instr_chunks() + make_phrase_chunks()
 

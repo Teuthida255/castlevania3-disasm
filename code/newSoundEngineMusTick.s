@@ -3,6 +3,17 @@
     fail_if bmi
 .endm
 
+.macro assert_only_hi_nibble
+    and #$0F
+    fail_if bne
+.endm
+
+.macro assert_30_mask
+    and #$30
+    cmp #$30
+    fail_if bne
+.endm
+
 nse_musTickDPCM:
     rts
 
@@ -94,6 +105,7 @@ nse_musTickTri:
     ; if macro address is odd, this is a State macro; otherwise, Length.
     lda wMacro@Tri_Length+1.w
     beq @setUnmuted ; no state/length macro -- set unmuted
+    lda wMacro@Tri_Length.w ; OPTIMIZE -- we are loading two bytes here, could just load one maybe and pack better?
     lsr
     bcs nse_musTickTri_State
 
@@ -227,7 +239,25 @@ nse_musTickSq:
     ; A <- duty cycle macro value, wNSE_genVar7 <- previous duty cycle offset value
     ldx wNSE_genVar5
     lda wMacro_start+1.w, x
-    beq @skipSetDutyCycle ; TODO / OPTIMIZE -- assert this out of existence.
+    beq @@@dutcycle_zero
+
+    .macro MACRO_TRAMPOLINE_6
+        @@@dutcycle_zero:
+            ; set duty cycle from macro offset byte,
+            ; which is reused to store duty cycle instead.
+            lda wMacro_start+2.w, x
+
+            ASSERT assert_only_hi_nibble
+
+            ; add important register flags
+            ora #%00110000
+
+            ; don't overwrite volume
+            and #%11110000
+            jmp @endSetDutyCycle
+    .endm
+    .define MACRO_TRAMPOLINE_SPACE
+
     nse_nextMacroByte_inline_precalc_abaseaddr wNSE_genVar7
     ldx nibbleParity
     bne +
@@ -239,13 +269,15 @@ nse_musTickSq:
     + ; TODO: 4x-packed duty cycle values?
     ; assumption: macro bytes 4 and 5 are 1.
     and #$F0
-    bit_skip_2
-@skipSetDutyCycle:
-    lda #%01110000 ; we use square mid for now only
+@endSetDutyCycle:
     ora wNSE_genVar0 ; OR with volume
 
 @PHA_and_ora0011_then_setFrequency:
     ; enable certain important bits in volume channel (for noise and square)
+
+    ;ASSERT assert_30_mask
+
+    ; OPTIMIZE: avoid the need for this (assert_30_mask must never fail)
     ora #%00110000
 
 @PHA_then_setFrequency:
