@@ -74,7 +74,7 @@
         dsb NUM_CHANS
     
     ; signed value centred at 80, indicating detune for channel
-    ; DPCM: stores portamento enabled
+    ; DPCM: (available for use)
     ; noise: stores sfx mask
     wMusChannel_BaseDetune:
         dsb NUM_CHANS
@@ -95,6 +95,10 @@
     ; "X" is stored in the low nibble, "Y" in the high.
     ; DPCM: stores nibble parity instead
     wMusChannel_ArpXY:
+        dsb NUM_CHANS
+
+    ; portamento rate. If this is non-zero, arpeggios are enabled.
+    wMusChannel_portrate:
         dsb NUM_CHANS
 
     ; end music state ----------
@@ -308,9 +312,6 @@
 
 ; some macros pack data in nibbles; this controls that.
 .define wMusChannel_ReadNibble wMusChannel_ArpXY+NSE_DPCM
-
-; flag per-channel: is portamento enabled
-.define wMusChannel_Portamento wMusChannel_BaseDetune+NSE_DPCM
 
 .define wSFXChannelActive wMusChannel_BaseDetune+NSE_NOISE
 

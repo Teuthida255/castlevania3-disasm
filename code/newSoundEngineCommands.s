@@ -243,15 +243,13 @@ nse_exec_effect_channelArpXY:
     ; precondition: X = channel idx + 1
 
     ; check if portamento was enabled
-    lda bitIndexTable-1.w, x
-    and wMusChannel_Portamento.w
+    lda wMusChannel_portrate-1.w, x
     beq +
 
     ; disable portamento on this channel
     ; (this is a documented side-effect)
-    eor #$FF
-    and wMusChannel_Portamento.w
-    sta wMusChannel_Portamento.w
+    lda #$0
+    sta wMusChannel_portrate-1.w
 
     ; clear arp macro (it is invalid
     ; because the space was used for portamento data)
@@ -260,7 +258,7 @@ nse_exec_effect_channelArpXY:
     lda #$0
     sta wMacro_start.w, x
     sta wMacro_start+1.w, x
-    sta wMacro_start+2.w, x
+    sta wMacro_start+2.w, x ; paranoia
 
     ; restore channel idx to X
     ldx wChannelIdx_a1
@@ -278,11 +276,6 @@ nse_exec_effect_portamento:
     lda #$0
     sta wMusChannel_ArpXY-1.w, x
 
-    ; set portamento flag for channel
-    lda bitIndexTable-1.w, x
-    ora wMusChannel_Portamento.w
-    sta wMusChannel_Portamento.w
-
     ; GV4 <- offset of portamento base struct for channel
     lda channelMacroPortamentoAddrTable-1.w, x
     sta wNSE_genVar4
@@ -294,7 +287,8 @@ nse_exec_effect_portamento:
     ; GV0 <- next phrase byte (portamento rate)
     txa 
     jsr nse_nextMacroByte_noloop
-    sta wNSE_genVar0
+    ldx wChannelIdx_a1
+    sta wMusChannel_portrate-1.w, x
 
     ; set portamento stored frequency from channel's base pitch
 
@@ -308,8 +302,6 @@ nse_exec_effect_portamento:
     sta wMacro_start, y
     lda pitchFrequencies_hi.w, x
     sta wMacro_start+1, y
-    lda wNSE_genVar0
-    sta wMacro_start+2, y
 
     ; next command
     lda wChannelIdx_a1
@@ -460,6 +452,19 @@ nse_exec_readInstrWait:
     ; OPTIMIZE: compare with cached instrument value?
     shift -3
     tay
+
+    ; if portamento enabled, we have to cache portamento value
+    ldx wNSE_genVar1
+    lda wMusChannel_portrate-1.w, x
+    beq +
+        lda channelMacroArpAddrTable-1.w, X
+        tax
+        lda wMacro_start.w, x
+        pha
+        lda wMacro_start+1.w, x
+        pha
+    +
+    
     
     ; X <- 2*(channel_idx + 1)
     asl wNSE_genVar1
@@ -517,8 +522,18 @@ nse_exec_readInstrWait:
     bmi -
     ; (end of loop)
 
-    ; clear nibble parity flag
+    ; restore portamento value if needed
     ldx wChannelIdx_a1
+    lda wMusChannel_portrate-1.w, x
+    beq +
+        ldy channelMacroArpAddrTable-1.w, X
+        pla
+        sta wMacro_start+1.w, y
+        pla
+        sta wMacro_start.w, y
+    +
+
+    ; clear nibble parity flag
     lda #$FF
     eor bitIndexTable-1.w, x
     and wMusChannel_ReadNibble.w

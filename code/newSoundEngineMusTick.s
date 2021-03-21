@@ -296,8 +296,7 @@ nse_musTickSq:
 
     ; check if portamento enabled -- if so, do that instead of arpeggio
     ; (arpeggio and portamento are mutually exclusive)
-    lda bitIndexTable, y
-    and wMusChannel_Portamento.w
+    lda wMusChannel_portrate.w, y
     beq +
     jmp @doPortamento
 +
@@ -611,7 +610,10 @@ nse_musTickSq:
 ; --------------
 @doPortamento:
     ; calculate target frequency (simplified)
-    ; precondition: Y = channel idx
+    ; preconditions:
+    ;   Y = channel idx
+    ;   A = portrate
+    sta wNSE_genVar7 ; <- portrate
 
     ; X <- channel base pitch
     lda wMusChannel_BasePitch, y
@@ -625,19 +627,20 @@ nse_musTickSq:
     ; compute target pitch - stored pitch
     ; then clamp to range [-portamento speed, +portamento speed]
     sec
-    lda wMacro_start, y
-    sbc pitchFrequencies_lo.w, x
+    lda pitchFrequencies_lo.w, x
+    sbc wMacro_start, y
     sta wSoundFrequency
-    lda wMacro_start+1, y
-    sbc pitchFrequencies_hi.w, x
+    lda pitchFrequencies_hi.w, x
+    sbc wMacro_start+1, y
     bmi @negativePortamento
 @positivePortamento:
-    bne @completePortamento
-    lda wMacro_start+2, y
+    bne @addPortamento
+    lda wNSE_genVar7
     cmp wSoundFrequency
     bcs @completePortamento
 @addPortamento:
-    ; (-C)
+    clc
+    lda wNSE_genVar7
     adc wMacro_start, y
     sta wMacro_start, y
     sta wSoundFrequency
@@ -657,22 +660,24 @@ nse_musTickSq:
 
 @negativePortamento:
     cmp #$FF
-    bne @completePortamento
+    bne @subtractPortamento
     ; (-C)
 
     ; A <- negative portamento speed
     lda #$1
-    sbc wMacro_start+2, y
+    sbc wNSE_genVar7
 
     ; ||speed|| < ||target - current||?
     cmp wSoundFrequency
     bcc @completePortamento
 @subtractPortamento:
-    ; A = -speed
-    clc
+    lda wNSE_genVar7
+    ; one's complement; must set carry to make this work.
+    eor #$FF
+    sec
     adc wMacro_start, y
     sta wMacro_start, y
-    sta wSoundFrequency+1
+    sta wSoundFrequency
     lda wMacro_start+1, y
     adc #$FF
     jmp @_completePortament_store_hi

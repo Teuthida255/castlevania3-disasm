@@ -466,6 +466,7 @@ nse_playMusic:
 -   lda #$0
     sta wMusChannel_BaseVolume-1.w, y
     sta wMusChannel_ArpXY-1.w, y
+    sta wMusChannel_portrate-1.w, y
     cpy #NSE_DPCM+1
     beq +
     cpy #NSE_NOISE+1
@@ -478,7 +479,6 @@ nse_playMusic:
 
     lda #$0
     sta wMusChannel_ReadNibble.w ; (paranoia)
-    sta wMusChannel_Portamento.w
 
     ; initialize channel macros and groove to 0
     ldy #(wMacro_end - wMacro_start)
