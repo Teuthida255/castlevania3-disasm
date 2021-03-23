@@ -249,7 +249,7 @@ nse_exec_effect_channelArpXY:
     ; disable portamento on this channel
     ; (this is a documented side-effect)
     lda #$0
-    sta wMusChannel_portrate-1.w
+    sta wMusChannel_portrate-1.w, x
 
     ; clear arp macro (it is invalid
     ; because the space was used for portamento data)
@@ -464,8 +464,7 @@ nse_exec_readInstrWait:
         lda wMacro_start+1.w, x
         pha
     +
-    
-    
+        
     ; X <- 2*(channel_idx + 1)
     asl wNSE_genVar1
     ldx wNSE_genVar1
@@ -495,15 +494,15 @@ nse_exec_readInstrWait:
     ; initialize macros to instrument defaults
     ; loop(channel macro data)
 -   ; (macro.lo <- instrTable[y++]
-    ;lda (wSoundBankTempAddr1), Y; DUMMY OUT
-    lda #$0 ; DUMMY OUT
+    lda (wSoundBankTempAddr1), Y
+    lda #$0
     sta wMacro_start.w, x
     iny
     inx
 
     ; (macro.hi <- instrTable[y++]
-    ;lda (wSoundBankTempAddr1), Y
-    lda #$0 ; DUMMY OUT
+    lda (wSoundBankTempAddr1), Y
+    lda #$0
     beq @macro_zero
     sta wMacro_start.w, x
     iny

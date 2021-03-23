@@ -35,7 +35,6 @@ def build(prg):
     symbols = symparser.symparse("castlevania3.sym")
     addr_soundtable_lo = symbols["nse_soundTable_lo"]
     addr_soundtable_hi = symbols["nse_soundTable_hi"]
-    print(symbols["nse_soundData"])
     chunks = ftToData.ft_to_data("resources/AoC_Demo.txt")
     chunklabels = [chunk["label"] for chunk in chunks]
     

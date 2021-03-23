@@ -1,12 +1,15 @@
 chunkmap = {}
 
-def chunk(label, data, maxlo=0xff):
+def chunk(label, data, maxlo=0xff, offset=0, **kwargs):
     if type(label) is not tuple:
         label = (label,)
     c = {
         "label": label,
         "data": data,
-        "maxlo": maxlo
+        "maxlo": maxlo,
+        "offset": offset,
+        "align": kwargs.get("align", 1),
+        "alignoff": kwargs.get("alignoff", 1)
     }
     for i, d in enumerate(c["data"]):
         if type(d) != dict:
@@ -14,6 +17,18 @@ def chunk(label, data, maxlo=0xff):
                 d += 0x80
                 c["data"][i] = d
             assert d >= 0 and d < 0x100
+    chunkmap[label] = c
+    return c
+
+def nullchunk(label):
+    if type(label) is not tuple:
+        label = (label,)
+    c = {
+        "label": label,
+        "data": None,
+        "maxlo": 0xff,
+        "offset": 0
+    }
     chunkmap[label] = c
     return c
 
@@ -40,13 +55,17 @@ def write_chunk(chunk, buff, i, address=None):
         chunk = chunkmap[chunk]
     assert(is_chunk(chunk))
 
+    if chunk["data"] is None:
+        chunk["addr"] = 0x0
+        return 0
+
     if  addrlo > chunk["maxlo"]:
         # skip some data and leave it unused
         steps = 0x100 - addrlo
         address += steps
         i += steps
 
-    chunk["addr"] = address
+    chunk["addr"] = address + chunk["offset"]
     for d in chunk["data"]:
         if is_chunkptr(d):
             assert len(buff) - i >= 2
@@ -67,8 +86,10 @@ def write_chunk(chunk, buff, i, address=None):
 def chunkptr(*args):
     if len(args) == 1 and type(args[0]) == tuple:
         label = args[0]
-    else:
+    elif len(args) > 1:
         label = tuple(args)
+    else:
+        label = None
     return {
         "ptr": label
     }
@@ -82,6 +103,8 @@ def chunkaddr(ptr):
 
 def deref_chunkptr(ptr):
     label = ptr["ptr"]
+    if label == None:
+        return 0
     if label in chunkmap:
         chunk = chunkmap[label]
         if "addr" in chunk and chunk["addr"] is not None:

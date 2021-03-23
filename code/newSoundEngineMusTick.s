@@ -318,7 +318,7 @@ nse_musTickSq:
 
     ; apply ArpXY to arpeggio offset
 @ArpXYAdjust:
-    bit wNSE_genVar1 ; N <- ArpX, Z <- ArpY
+    bit wNSE_genVar1 ; N <- ArpX, V <- ArpY
     bvs @ArpY_UnkX ; br. ArpY
     bpl @ArpNegative ; br. ~ArpX
 @ArpX:

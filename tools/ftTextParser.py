@@ -26,7 +26,7 @@ def ftParseTxt(path):
     with open(path) as f:
         lines = f.read().splitlines()
 
-    macros = []
+    macros = {}
     dpcms = []
     grooves = []
     usegroove = []
@@ -68,7 +68,7 @@ def ftParseTxt(path):
             continue
 
         args = lc[1:]
-        z = [int(arg) if arg.isnumeric() else None for arg in args]
+        z = [optional_dec(arg) for arg in args]
         x = [optional_hex(arg) for arg in args]
 
         if op == "TITLE":
@@ -106,15 +106,17 @@ def ftParseTxt(path):
             dpcms[-1]["data"].extend(map(lambda b: int(b, 16), dpcmBytes))
         
         elif op in token_macros:
-            macros.append({
+            macros[(z[0], z[1])] = {
+                "chipname": op,
                 "chip": token_macros.index(op),
-                "mt": z[0],
+                "type": ["volume", "arpeggio", "pitch", "hi-pitch", "duty"][z[0]],
+                "typeidx": z[0],
                 "index": z[1],
                 "loop": z[2],
                 "release": z[3],
                 "setting": z[4],
                 "data": z[6:]
-            })
+            }
         
         elif op == 'GROOVE':
             assert len(z) - 3 == z[1], "groove length and data do not match"
@@ -131,8 +133,8 @@ def ftParseTxt(path):
             instruments.append({
                 "type": op,
                 "index": z[0],
-                "macros": z[1:5],
-                "name": args[5],
+                "macros": z[1:6],
+                "name": args[6],
                 "dpcmkeys": {}
             })
 

@@ -629,7 +629,6 @@ nse_updateSound:
         +
     .endm
 
-    ; DUMMYOUT
     sqregset 1
     sqregset 2
     sqregset 3

@@ -1,5 +1,6 @@
 import sys
 import string
+import re
 
 with open('original/OR.bin', 'rb') as f:
     prgData = f.read()
@@ -84,6 +85,11 @@ def rlen(iterable):
 
 def optional_hex(arg):
     return int(arg, 16) if all(c in string.hexdigits for c in arg) else None
+
+re_int = re.compile("^-?[0-9]+$")
+
+def optional_dec(arg):
+    return int(arg) if re_int.match(arg) else None
 
 def HX(arg):
     return hex(arg)[2:].upper()

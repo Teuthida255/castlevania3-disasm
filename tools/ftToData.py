@@ -19,15 +19,24 @@ NSE_DPCM = 4
 NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
 
-macros_per_channel = [
-    4, # sq1
-    4, # sq2
-    3, # tri
-    2, # noise
-    0, # dpcm
-    4, # sq3
-    4  # sq4
+channel_macros = [
+    ["arp", "detune", "vol", "duty"], # sq1
+    ["arp", "detune", "vol", "duty"], # sq2
+    ["arp", "detune", "length"], # tri
+    ["arp", "vol"], # noise
+    [], # dpcm
+    ["arp", "detune", "vol", "duty"], # sq3
+    ["arp", "detune", "vol", "duty"]  # sq4
 ]
+
+ft_macro_type_idx = {
+    "vol": 0,
+    "length": 0,
+    "arp": 1,
+    "detune": 2,
+    "hi-detune": 3,
+    "duty": 4,
+}
 
 def get_song_loop_point(i):
     ft_track = ft["tracks"][i]
@@ -61,7 +70,6 @@ def channel_chunk(song_idx, channel_idx):
         [
             # instrument pointers
             *[chunkptr("song", song_idx, "channel", channel_idx, "instr", i) for i in range(NUM_INSTRS)],
-            #*[0 for i in range(2*NUM_INSTRS)],
             #phrase pointers
             *[
                 chunkptr("song", song_idx, "channel", channel_idx, "phrase", ft_track["frames"][i][channel_idx]) for i in rlen(
@@ -199,7 +207,15 @@ track_data = []
 def preprocess_tracks():
     for track_idx, track in enumerate(ft["tracks"]):
         data = {
-            "patterns": []
+            "patterns": [],
+            "channels": [{
+                # ft instruments used
+                "instr_f": set(),
+                # map: ft instrument idx -> data instrument idx
+                "instr_fd": dict(),
+                # map: data instrument idx -> ft instrument idx
+                "instr_df": dict()
+            } for i in range(NUM_CHANS)]
         }
         track_data.append(data)
         for pattern_idx in track["patterns"]:
@@ -209,15 +225,29 @@ def preprocess_tracks():
             data["patterns"].append(pattern_data)
             pattern = track["patterns"][pattern_idx]
             for chan_idx, chan in enumerate(pattern):
-                channel_data = {
-                    "rows": []
+                channel_phrase_data = {
+                    "rows": [],
                 }
-                pattern_data["channels"].append(channel_data)
+                channel_data = data["channels"][chan_idx]
+                
+                pattern_data["channels"].append(channel_phrase_data)
                 for row_idx, row in enumerate(chan):
                     row_data = {
                         "effects": []
                     }
-                    channel_data["rows"].append(row_data)
+                    if row["instr"] is not None and row["instr"] != "&&":
+                        instr = int(row["instr"], 16)
+                        channel_data["instr_f"].add(instr)
+                    channel_phrase_data["rows"].append(row_data)
+        # TODO: identify channels which can use the same instruments and phrases,
+        # then merge their channel structs
+        for channel in data["channels"]:
+            assert len(channel["instr_f"]) <= NUM_INSTRS, "too many instruments on channel"
+            # assign instrument idxs
+            for data_idx, ft_idx in enumerate(channel["instr_f"]):
+                channel["instr_fd"][ft_idx] = data_idx
+                channel["instr_df"][data_idx] = ft_idx
+
 
 def make_phrase_data(song_idx, chan_idx, pattern_idx):
     track = ft["tracks"][song_idx]
@@ -229,15 +259,19 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     if chan_idx == NSE_DPCM:
         return [1, 1, 0]
     
+    # output state
     state_instr = None
     state_vol = None
+    if chan_idx == NSE_TRI:
+        state_vol = 1
     state_echo_vol = None
     state_echo_vol_pending_addr = -1
     state_note = None
     state_sweep = False
 
     # preprocesser channel data
-    channel_pdata = track_data[song_idx]["patterns"][pattern_idx]["channels"][chan_idx]
+    channel_pdata_phrase = track_data[song_idx]["patterns"][pattern_idx]["channels"][chan_idx]
+    channel_pdata = track_data[song_idx]["channels"][chan_idx]
 
     phrase_len = get_rows_in_phrase(pattern) or track["patternLength"]
     assert len(phrase) == track["patternLength"]
@@ -286,7 +320,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
 
     for row_idx, row in enumerate(phrase):
         #preprocessor row data
-        row_pdata = channel_pdata["rows"][row_idx]
+        row_pdata = channel_pdata_phrase["rows"][row_idx]
 
         note = row["note"]
         instr = row["instr"]
@@ -297,6 +331,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             ampersand = True
         elif instr is not None:
             instr = int(instr, 16)
+            assert instr in channel_pdata["instr_fd"]
+            instr = channel_pdata["instr_fd"][instr]
 
         vol = row["vol"]
         if vol is not None:
@@ -553,18 +589,278 @@ def make_groove_chunks():
         ))
     return chunks
 
+macro_packing = {
+    "duty": 2,
+    "vol": 2,
+    "arp": 1,
+}
+
+def make_macro_chunk(type, ft_macro, label, **kwargs):
+    loop = ft_macro["loop"]
+    release = ft_macro["release"]
+    packing = macro_packing[type]
+
+    # famitracker stores release at value minus one
+    if release >= 0:
+        release += 1
+
+    # is there a release macro?
+    has_release = release >= 0
+
+    # output chunk parameters
+    chunkps = [
+        {
+            "label": label if i == 0 else (*label, "release"),
+
+            # store release macro pointer before data
+            "offset": 2,
+            # ft_macro loop point
+            # -1 means loop last value.
+            # 0 means loop from first value on, etc.
+            "loop": -1,
+            # output data
+            "data": [],
+            # input 0cc macro data
+            "ft_data": [],
+            # alignment
+            "align": 1,
+            "alignoff": 0
+        } for i in range(2 if has_release else 1)
+    ]
+
+    ft_macro_data = [*ft_macro["data"]]
+
+    # split input data into release and base
+    if has_release:
+        chunkps[0]["ft_data"] = ft_macro_data[:release]
+        chunkps[1]["ft_data"] = ft_macro_data[release:]
+        if loop >= 0:
+            if loop >= release:
+                chunkps[1]["loop"] = loop - release
+            if loop < release:
+                chunkps[0]["loop"] = loop
+    else:
+        chunkps[0]["ft_data"] = ft_macro_data
+        if loop >= 0:
+            chunkps[0]["loop"] = loop
+
+    for is_release, chunkp in enumerate(chunkps):
+        ft_data = [*chunkp["ft_data"]] # input data (copy)
+        assert len(ft_data) >= 0
+
+        data = [] # output data
+        ft_loop = chunkp["loop"]
+        has_loop = ft_loop >= 0
+
+        # ignore loop point if the looping section repeats one value only.
+        if has_loop and len(set(ft_data[ft_loop:])) <= 1:
+            has_loop = False
+            ft_loop = -1
+
+        # assert loop point and length aligns to packing
+        if has_loop:
+            # loop point is allowed to be arbitrary
+            assert ft_loop % packing == 0
+            assert len(ft_data) % packing == 0
+        else:
+            # repeat final value if no loop point
+            while len(ft_data) % packing != 0:
+                ft_data.append(ft_data[-1])
+                
+        # ft data now aligns to packing
+        assert len(ft_data) % packing == 0
+
+        if type in ["duty", "vol"]:
+            for i, b in enumerate(ft_data):
+                nibble = (b << 2) | 3
+                if i % 2 == 0:
+                    # even frame -- nibble lo
+                    data += [nibble & 0xf]
+                else:
+                    # odd frame -- nibble hi
+                    data[-1] |= (nibble & 0xf) << 4
+        elif type == "arp":
+            arpset = ["absolute", "fixed", "relative", "scheme"][ft_macro["setting"]]
+            chunkp["align"] = 2
+            if arpset == "fixed":
+                # support could be added, but where to store mode macro..?
+                assert not "mode_macro" in kwargs, "fixed arp macros not available for noise channel"
+                # fixed macros are distinguished from arp macros by
+                # starting at an odd address
+                chunkp["alignoff"] = 1
+                for b in ft_data:
+                    data += [b + 1]
+                # add FF at end if non-looping and (this is release, or there is no release)
+                if not has_loop:
+                    if is_release or not has_release:
+                        data += [0xFF]
+            elif arpset == "relative":
+                assert False, "relative pitch macros not supported"
+            elif arpset in ["scheme", "absolute"]:
+                mode_macro = None
+                if "mode_macro" in kwargs and kwargs["mode_macro"] is not None:
+                    print(label)
+                    mode_macro = kwargs["mode_macro"]
+                    mode_loop = mode_macro["loop"]
+                    mode_release = mode_macro["release"]
+                    mode_data = mode_macro["data"]
+                    assert mode_loop == ft_macro["loop"], "mode/arp loop point does not match"
+                    assert mode_release == ft_macro["release"], "mode/arp release point does not match"
+                    assert len(mode_data) == len(ft_macro["data"]), "mode/arp data lengths do not match"
+                for i, b in enumerate(ft_data):
+                    x = False
+                    y = False
+                    mode = False
+                    if b < 0:
+                        b += 0x80
+                    assert b in range(0, 0x100)
+                    if arpset == "absolute":
+                        y = (b & 0x80) != 0
+                        x = (b & 0x40) != 0
+                        negative = x and y
+                    else:
+                        negative = b & 0x80 != 0
+                    
+                    # convert to absolute form
+                    if negative:
+                        b -= 0x80
+                        b = abs(b)
+
+                    if mode_macro:
+                        mode_data_i = i + (release if is_release else 0)
+                        mode = mode_data[mode_data_i] != 0
+                        b &= 0xF
+
+                    b &= 0x3F
+                    # note that x and y are swapped from FT's format
+                    if x:
+                        b |= 0x80
+                    if y:
+                        b |= 0x40
+                    if b == 0:
+                        # replace '0' to avoid having 0 in macro
+                        negative = True
+                    if negative:
+                        b |= 0xC0
+                    if mode:
+                        b |= 0x20
+                    data += [b]
+        else:
+            # no support for other macros yet.
+            assert False
+
+        assert 0 not in data, "macros cannot contain 0"
+        
+        # add loop point to release
+        loop = 1
+        if ft_loop < 0:
+            # loop to end
+            loop = len(data)
+        else:
+            loop = loop // packing
+        data = [loop] + data
+        assert len(data) > loop
+
+        # add release macro ptr
+        if has_release and not is_release:
+            data = [chunkptr(*label, "release")] + data
+        else:
+            # null ptr
+            data = [chunkptr()] + data
+        
+        # detune base value is stored before release ptr
+        if type == "detune":
+            chunkp["offset"] += 1
+            data = [detune_base] + data
+
+        # set output data
+        chunkp["data"] = data
+    
+    return [
+        chunk(
+            chunkp["label"],
+            chunkp["data"],
+            0xff - chunkp["offset"],
+            chunkp["offset"],
+            align=chunkp["align"],
+            alignoff=chunkp["alignoff"]
+        )
+        for chunkp in reversed(chunkps)
+    ]
+
+
+
+def make_macro_chunks():
+    chunks = []
+    for track_idx, track in enumerate(ft["tracks"]):
+        for chan_idx in range(NUM_CHANS):
+            channel_pdata = track_data[track_idx]["channels"][chan_idx]
+            for instr_idx in range(NUM_INSTRS):
+                if instr_idx >= len(channel_pdata["instr_f"]):
+                    # instrument index unused by channel
+                    continue
+                assert instr_idx in channel_pdata["instr_df"]
+                ft_instr_idx = channel_pdata["instr_df"][instr_idx]
+                
+                for macro_type in channel_macros[chan_idx]:
+                    label = ("song", track_idx, "channel", chan_idx, "instr", instr_idx, "macro", macro_type)
+                    if ft_instr_idx >= len(ft["instruments"]):
+                        # instrument not defined
+                        chunks.append(
+                            nullchunk(label)
+                        )
+                        continue
+                    ft_instr = ft["instruments"][ft_instr_idx]
+                    mtidx = ft_macro_type_idx[macro_type]
+                    ft_macro_idx = ft_instr["macros"][mtidx]
+                    if ft_macro_idx < 0 or (mtidx, ft_macro_idx) not in ft["macros"]:
+                        # no macro set.
+                        chunks.append(
+                            nullchunk(label)
+                        )
+                        continue
+                    ft_macro = ft["macros"][(mtidx, ft_macro_idx)]
+                    if macro_type not in ["duty", "vol", "arp"]:
+                        # dummy out chunks for now
+                        chunks.append(
+                            nullchunk(label)
+                        )
+                        continue
+                    # add chunks
+                    if macro_type == "arp" and chan_idx == NSE_NOISE:
+                        ft_macro_idx = ft_instr["macros"][4]
+                        if ft_macro_idx < 0 or (4, ft_macro_idx) not in ft["macros"]:
+                            ft_mode_macro = None
+                        else:
+                            ft_mode_macro = ft["macros"][(4, ft_macro_idx)]
+                        # noise arp requires an additional macro
+                        chunks += make_macro_chunk(macro_type, ft_macro, label, mode_macro=ft_mode_macro)
+                    else:
+                        chunks += make_macro_chunk(macro_type, ft_macro, label)
+
+    return chunks
 
 # indexed as listed in 0cc's exported .txt
 phrase_chunks = dict()
 
 def make_instr_chunks():
-    chunks =  []
+    chunks = make_macro_chunks()
     for track_idx, track in enumerate(ft["tracks"]):
         for chan_idx in range(NUM_CHANS):
+            channel_pdata = track_data[track_idx]["channels"][chan_idx]
             for instr_idx in range(NUM_INSTRS):
-                instrument = [0 for i in range(3 * macros_per_channel[chan_idx])]
+                instr_label = ("song", track_idx, "channel", chan_idx, "instr", instr_idx)
+                if instr_idx >= len(channel_pdata["instr_f"]):
+                    # no such instrument
+                    chunks.append(nullchunk(instr_label))
+                    continue
+                # table of macro addresses
+                instrument = [
+                    chunkptr("song", track_idx, "channel", chan_idx, "instr", instr_idx, "macro", macro_type)
+                    for macro_type in channel_macros[chan_idx]
+                ]
                 chunks.append(chunk(
-                    ("song", track_idx, "channel", chan_idx, "instr", instr_idx),
+                    instr_label,
                     instrument
                 ))
     return chunks
