@@ -23,7 +23,7 @@ channel_macros = [
     ["arp", "detune", "vol", "duty"], # sq1
     ["arp", "detune", "vol", "duty"], # sq2
     ["arp", "detune", "length"], # tri
-    ["arp", "vol"], # noise
+    ["arpmode", "vol"], # noise
     [], # dpcm
     ["arp", "detune", "vol", "duty"], # sq3
     ["arp", "detune", "vol", "duty"]  # sq4
@@ -33,6 +33,7 @@ ft_macro_type_idx = {
     "vol": 0,
     "length": 0,
     "arp": 1,
+    "arpmode": 1, # also 4
     "detune": 2,
     "hi-detune": 3,
     "duty": 4,
@@ -593,6 +594,7 @@ macro_packing = {
     "duty": 2,
     "vol": 2,
     "arp": 1,
+    "arpmode": 1,
 }
 
 def make_macro_chunk(type, ft_macro, label, **kwargs):
@@ -679,7 +681,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                 else:
                     # odd frame -- nibble hi
                     data[-1] |= (nibble & 0xf) << 4
-        elif type == "arp":
+        elif type in ["arp", "arpmode"]:
             arpset = ["absolute", "fixed", "relative", "scheme"][ft_macro["setting"]]
             chunkp["align"] = 2
             if arpset == "fixed":
@@ -820,14 +822,14 @@ def make_macro_chunks():
                         )
                         continue
                     ft_macro = ft["macros"][(mtidx, ft_macro_idx)]
-                    if macro_type not in ["duty", "vol", "arp"]:
+                    if macro_type not in ["duty", "vol", "arp", "arpmode"]:
                         # dummy out chunks for now
                         chunks.append(
                             nullchunk(label)
                         )
                         continue
                     # add chunks
-                    if macro_type == "arp" and chan_idx == NSE_NOISE:
+                    if macro_type == "arpmode":
                         ft_macro_idx = ft_instr["macros"][4]
                         if ft_macro_idx < 0 or (4, ft_macro_idx) not in ft["macros"]:
                             ft_mode_macro = None

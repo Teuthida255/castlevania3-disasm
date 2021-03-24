@@ -43,7 +43,7 @@ def chunk_len(chunk):
 
 # returns number of bytes advanced
 # (address may be modified)
-def write_chunk(chunk, buff, i, address=None):
+def write_chunk(chunk, buff, i, address=None, bank=None):
     steps = 0
     if address is None:
         address = i
@@ -66,6 +66,7 @@ def write_chunk(chunk, buff, i, address=None):
         i += steps
 
     chunk["addr"] = address + chunk["offset"]
+    chunk["bank"] = bank
     for d in chunk["data"]:
         if is_chunkptr(d):
             assert len(buff) - i >= 2
@@ -113,6 +114,13 @@ def deref_chunkptr(ptr):
             assert False, "chunk does not have an assigned address: " + str(label)
     else:
         assert False, "no chunk with the following label exists: " + str(label)
+
+def get_chunk(label):
+    if label == None:
+        return 0
+    if label in chunkmap:
+        return chunkmap[label]
+    return None
 
 def is_chunkptr(v):
     return type(v) == dict and "ptr" in v

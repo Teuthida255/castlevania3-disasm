@@ -31,5 +31,8 @@ if "INSERT_SOUND" in sys.argv[1:]:
 if isExtended:
     chrData += bytearray(0x100000-len(chrData))
 
-with open('castlevania3build.nes', 'wb') as f:
+if not os.path.exists("build"):
+    os.makedirs("build")
+
+with open(os.path.join("build", 'castlevania3build.nes'), 'wb') as f:
     f.write(bytearray(header) + prgData + chrData)

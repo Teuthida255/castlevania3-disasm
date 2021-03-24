@@ -11,3 +11,4 @@ __pycache__/
 *.o
 resources/
 memwatch.txt
+build/

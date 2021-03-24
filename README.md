@@ -1,6 +1,6 @@
 ## Compiling
 * Requires [wla-dx](https://github.com/vhelin/wla-dx) and [python3](https://www.python.org/).
-* `make nes` will build the ROM, it assumes the directory `original` exists, with CHR ROM, `OR.chr` inside. ([NesExtract](https://github.com/X-death25/Nes-Extract) can be used to extract the chr from a ROM)
+* `make nes` will build the ROM in the `build/` directory, it assumes the directory `original` exists, with CHR ROM, `OR.chr` inside. ([NesExtract](https://github.com/X-death25/Nes-Extract) can be used to extract the chr from a ROM)
 * To compile the romhack version, define `export ROMHACK=1` before running `make nes`.
 
 ## Misc

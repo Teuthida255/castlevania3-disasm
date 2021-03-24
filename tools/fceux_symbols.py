@@ -1,13 +1,13 @@
 from utils import *
 import string
 import re
-
-bnames = re.compile("B[0-9a-zA-Z]+_[0-9a-zA-Z]{0,4}")
+import os
+import symparser
 
 outf = None
 previdx = None
 
-used = set()
+started_files = set()
 
 def idx(bank, addr):
     if addr < 0x8000:
@@ -15,7 +15,7 @@ def idx(bank, addr):
     return bank // 2
 
 def filename(bank, addr):
-    base = "castlevania3build.nes."
+    base = os.path.join("build", "castlevania3build.nes.")
     ext = ""
     if addr < 0x8000:
         ext = "ram"
@@ -25,39 +25,28 @@ def filename(bank, addr):
 
 printable = set(string.printable)
 
-with open('castlevania3.sym') as f:
-    for line in f.readlines():
-        line = line.strip()
-        if line.startswith(";"):
-            continue
-        if len(line) < 9:
-            continue
-        if line[2] != ":" or line[7] != " ":
-            continue
-        bank = conv(line[0:2])
-        addr = conv(line[3:7])
-        name = line[8:]
-        if bnames.match(name):
-            # skip filler names
-            continue
-        
-        if (idx(bank, addr), addr) in used and not name.startswith("wNSE_genVar"):
-            continue
-        else:
-            used.add((idx(bank, addr), addr))
-        
-        if idx(bank, addr) != previdx:
-            previdx = idx(bank, addr)
-            if outf:
-                outf.close()
-            outf = open(filename(bank, addr), "w")
-        hex4 = hex(addr)[2:].upper()
-        while len(hex4) < 4:
-            hex4 = "0" + hex4
+symbols = symparser.symparse("castlevania3.sym", "list:(symbol,bank,addr)")
 
-        oline = "$" + hex4 + "#" + name.replace("#","_").replace(" ", "_") + "#\n"
+revmap = {
+    (bank, addr): name for name, bank, addr in symbols
+}
 
-        outf.write(''.join(filter(lambda x: x in printable, oline)))
+for bank, addr in revmap:
+    name = revmap[(bank, addr)]
+    
+    if idx(bank, addr) != previdx:
+        previdx = idx(bank, addr)
+        if outf:
+            outf.close()
+        outf = open(filename(bank, addr), "a" if (bank,addr) in started_files else "w")
+        started_files.add((bank, addr))
+    hex4 = hex(addr)[2:].upper()
+    while len(hex4) < 4:
+        hex4 = "0" + hex4
+
+    oline = "$" + hex4 + "#" + name.replace("#","_").replace(" ", "_") + "#\n"
+
+    outf.write(''.join(filter(lambda x: x in printable, oline)))
 
 if outf:
     outf.close()

@@ -91,8 +91,11 @@ re_int = re.compile("^-?[0-9]+$")
 def optional_dec(arg):
     return int(arg) if re_int.match(arg) else None
 
-def HX(arg):
-    return hex(arg)[2:].upper()
+def HX(arg, digits=1):
+    c = hex(arg)[2:].upper()
+    while len(c) < digits:
+        c = '0' + c
+    return c
 
 if __name__ == '__main__':
     getOutstandingLines()
