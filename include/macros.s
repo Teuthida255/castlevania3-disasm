@@ -187,18 +187,34 @@
     \1 @@@@fail
 .endm
 
-.macro fail_unless ARGS br
-    br @@@@pass
-    jmp @@@@fail
+.macro pass_if
+    \1 @@@@pass
+.endm
+
+
+.macro fail_by_default
+    .ifdef __pass_by_default__
+        .undefine __pass_by_default__
+    .endif
+.endm
+
+.macro pass_by_default
+    .ifndef __pass_by_default__
+        .define __pass_by_default__
+    .endif
 .endm
 
 .macro ASSERT
     .ifdef DEBUG
         @@@assert\@:
+            .define __pass_by_default__
             php
             pha
             \1
-            jmp @@@@pass
+            .ifdef __pass_by_default__
+                jmp @@@@pass
+                .undefine __pass_by_default__
+            .endif
         @@@@fail:
             pla
             plp

@@ -52,6 +52,8 @@ def build(prg):
         addr_soundtable_hi = symbols["nse_soundTable_hi"]
         chunks = ftToData.ft_to_data("resources/AoC_Demo.txt")
         chunklabels = [chunk["label"] for chunk in chunks]
+
+        assign_chunk("null32", *symbols["nullTable"])
         
         # write chunks
         outaddr = symbols["nse_soundData"]

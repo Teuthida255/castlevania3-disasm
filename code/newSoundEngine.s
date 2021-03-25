@@ -491,9 +491,9 @@ nse_playMusic:
     ; loop(channels)
     ldy #(NUM_CHANS*2)
 
--   ; wMusChannel_InstrTableAddr[channel] <- song.channelDatasetAddr[channel]
+-   ; wMusChannel_CachedChannelTableAddr[channel] <- song.channelDatasetAddr[channel]
     lda (wSoundBankTempAddr2), Y
-    sta wMusChannel_InstrTableAddr-1, Y
+    sta wMusChannel_CachedChannelTableAddr-1, Y
     dey
     bne -
     ;fallthrough

@@ -38,8 +38,9 @@ for bank, addr in revmap:
         previdx = idx(bank, addr)
         if outf:
             outf.close()
-        outf = open(filename(bank, addr), "a" if (bank,addr) in started_files else "w")
-        started_files.add((bank, addr))
+        fname = filename(bank, addr)
+        outf = open(fname, "a" if fname in started_files else "w")
+        started_files.add(fname)
     hex4 = hex(addr)[2:].upper()
     while len(hex4) < 4:
         hex4 = "0" + hex4

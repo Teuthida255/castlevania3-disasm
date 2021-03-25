@@ -96,7 +96,7 @@ nse_exec_Note:
     sta wMusChannel_DetuneAccumulator_Lo-1.w, x
     sta wMusChannel_DetuneAccumulator_Hi-1.w, x
 
-    ; reset vibrato index (
+    ; reset vibrato index
 
     ldy channelMacroVibratoTable-1.w, x
     beq + ; skip if this channel doesn't have vibrato
@@ -469,11 +469,34 @@ nse_exec_readInstrWait:
     asl wNSE_genVar1
     ldx wNSE_genVar1
 
-    ; wSoundBankTempAddr2 <- wMusChannel_InstrTableAddr[channel_idx]
-    lda wMusChannel_InstrTableAddr-2.w, X
+    ; wSoundBankTempAddr2 <- wMusChannel_CachedChannelTableAddr[channel_idx]
+    lda wMusChannel_CachedChannelTableAddr-2.w, X
     sta wSoundBankTempAddr2
-    lda wMusChannel_InstrTableAddr-3.w, X
+    lda wMusChannel_CachedChannelTableAddr-1.w, X
     sta wSoundBankTempAddr2+1
+
+    .macro assert_instr_nonnull
+        lda wSoundBankTempAddr2
+        pass_if bne
+        lda wSoundBankTempAddr2+1
+        pass_if bne
+        fail_by_default
+    .endm
+    ASSERT assert_instr_nonnull
+
+    .macro assert_instr_nonzerotable
+        ; instrument 0xF only is allowed to be null.
+        cpy #(2*$F)
+        pass_if beq
+        lda wSoundBankTempAddr2
+        cmp <nullTable
+        pass_if bne
+        lda wSoundBankTempAddr2+1
+        cmp >nullTable
+        pass_if bne
+        fail_by_default
+    .endm
+    ASSERT assert_instr_nonzerotable
     
     ; wSoundBankTempAddr1 <- wInstrAddr[high nibble]
     lda (wSoundBankTempAddr2), Y

@@ -78,7 +78,7 @@ def ftParseTxt(path):
         elif op == "COPYRIGHT":
             data["copyright"] = args[0]
         elif op == "COMMENT":
-            data["comment"] = args[0]
+            data["comment"] += args[0].replace('""', '&quotə;').replace('"', '').replace("&quotə;", '"') + "\n"
         elif op == "MACHINE":
             data["machine"] = z[0]
         elif op == "FRAMERATE":

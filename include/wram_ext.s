@@ -118,7 +118,7 @@
 
     ; this could be re-calculated every instrument change, but
     ; it's helpful to cache this instead.
-    wMusChannel_InstrTableAddr:
+    wMusChannel_CachedChannelTableAddr:
         dsw NUM_CHANS
 
     ; hardware register cache -- write to these during the mixing logic

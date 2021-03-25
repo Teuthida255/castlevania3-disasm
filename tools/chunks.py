@@ -9,7 +9,11 @@ def chunk(label, data, maxlo=0xff, offset=0, **kwargs):
         "maxlo": maxlo,
         "offset": offset,
         "align": kwargs.get("align", 1),
-        "alignoff": kwargs.get("alignoff", 1)
+        "alignoff": kwargs.get("alignoff", 1),
+        # vbank: 'virtual bank'. vbank 0 must always be accessible;
+        # all other virtual banks must simply be guaranteed to be
+        # loaded at the same time as others in their class.
+        "vbank": kwargs.get("vbank", 0)
     }
     for i, d in enumerate(c["data"]):
         if type(d) != dict:
@@ -41,6 +45,38 @@ def chunk_len(chunk):
             c += 1
     return c
 
+# sets chunk to be at another chunk
+def associate_chunk(chunksrc, chunkdst):
+    if is_chunkptr(chunksrc):
+        chunksrc = chunkmap[chunksrc["ptr"]]
+    if type(chunksrc) == str:
+        chunksrc = (chunksrc,)
+    if type(chunksrc) == tuple:
+        chunksrc = chunksrc[chunk]
+    assert(is_chunk(chunksrc))
+
+    if is_chunkptr(chunkdst):
+        chunkdst = chunkmap[chunkdst["ptr"]]
+    if type(chunkdst) == str:
+        chunkdst = (chunkdst,)
+    if type(chunkdst) == tuple:
+        chunkdst = chunkmap[chunkdst]
+    assert(is_chunk(chunkdst))
+
+    chunksrc["assoc"] = chunkdst["label"]
+
+# sets chunk addr without writing it
+def assign_chunk(chunk, address, bank):
+    if is_chunkptr(chunk):
+        chunk = chunkmap[chunk["ptr"]]
+    if type(chunk) == str:
+        chunk = (chunk,)
+    if type(chunk) == tuple:
+        chunk = chunkmap[chunk]
+    assert(is_chunk(chunk))
+    chunk["addr"] = address
+    chunk["bank"] = bank
+
 # returns number of bytes advanced
 # (address may be modified)
 def write_chunk(chunk, buff, i, address=None, bank=None):
@@ -51,12 +87,20 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
 
     if is_chunkptr(chunk):
         chunk = chunkmap[chunk["ptr"]]
+    if type(chunk) == str:
+        chunk = (chunk,)
     if type(chunk) == tuple:
         chunk = chunkmap[chunk]
     assert(is_chunk(chunk))
 
     if chunk["data"] is None:
         chunk["addr"] = 0x0
+        return 0
+    
+    if chunk.get('assoc', None) is not None:
+        chunkassoc = chunkmap[chunk['assoc']]
+        chunk["addr"] = chunkassoc["addr"]
+        chunk["bank"] = chunkassoc["bank"]
         return 0
 
     if  addrlo > chunk["maxlo"]:

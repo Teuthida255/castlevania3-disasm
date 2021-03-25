@@ -245,9 +245,18 @@ def preprocess_tracks():
         for channel in data["channels"]:
             assert len(channel["instr_f"]) <= NUM_INSTRS, "too many instruments on channel"
             # assign instrument idxs
+            empty_instrument_found = False
             for data_idx, ft_idx in enumerate(channel["instr_f"]):
-                channel["instr_fd"][ft_idx] = data_idx
-                channel["instr_df"][data_idx] = ft_idx
+                # check that instrument actually exists in ft; otherwise,
+                # assign to data_idx $F
+                if ft_idx >= len(ft["instruments"]):
+                    empty_instrument_found = True
+                    channel["instr_fd"][ft_idx] = 0xF
+                elif ft_idx == 0xF and empty_instrument_found:
+                    assert False
+                else:
+                    channel["instr_fd"][ft_idx] = data_idx
+                    channel["instr_df"][data_idx] = ft_idx
 
 
 def make_phrase_data(song_idx, chan_idx, pattern_idx):
@@ -790,8 +799,6 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
         for chunkp in reversed(chunkps)
     ]
 
-
-
 def make_macro_chunks():
     chunks = []
     for track_idx, track in enumerate(ft["tracks"]):
@@ -807,9 +814,9 @@ def make_macro_chunks():
                 for macro_type in channel_macros[chan_idx]:
                     label = ("song", track_idx, "channel", chan_idx, "instr", instr_idx, "macro", macro_type)
                     if ft_instr_idx >= len(ft["instruments"]):
-                        # instrument not defined
-                        chunks.append(
-                            nullchunk(label)
+                        # instrument not defined -- zerotable.
+                        assign_chunk_to(
+                            label, "null32"
                         )
                         continue
                     ft_instr = ft["instruments"][ft_instr_idx]
@@ -898,9 +905,14 @@ def ft_to_data(path):
     global ft
     ft = ftParseTxt(path)
 
+    # sometimes we need a pointer to an empty chunk.
+    chunks = [
+        chunk("null32", [0] * 32)
+    ]
+
     preprocess_tracks()
 
-    chunks = make_instr_chunks() + make_phrase_chunks()
+    chunks += make_instr_chunks() + make_phrase_chunks()
 
     chunks = make_vibrato_chunks() + make_groove_chunks() + chunks
 
