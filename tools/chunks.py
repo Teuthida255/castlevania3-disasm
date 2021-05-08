@@ -166,6 +166,9 @@ def get_chunk(label):
         return chunkmap[label]
     return None
 
+def chunk_is_null(label):
+    return get_chunk(label)["data"] is None
+
 def is_chunkptr(v):
     return type(v) == dict and "ptr" in v
 

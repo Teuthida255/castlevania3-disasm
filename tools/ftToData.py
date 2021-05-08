@@ -39,6 +39,16 @@ ft_macro_type_idx = {
     "duty": 4,
 }
 
+def error_context(**kwargs):
+    s = " ["
+    first = True
+    for kwarg in kwargs:
+        if not first:
+            s += ", "
+        first = False
+        s += kwarg + ": " + str(kwargs[kwarg])
+    return s + "]"
+
 def get_song_loop_point(i):
     ft_track = ft["tracks"][i]
     for frame in ft_track["frames"]:
@@ -74,7 +84,7 @@ def channel_chunk(song_idx, channel_idx):
             #phrase pointers
             *[
                 chunkptr("song", song_idx, "channel", channel_idx, "phrase", ft_track["frames"][i][channel_idx]) for i in rlen(
-                    phrase_chunks[song_idx][channel_idx]
+                    ft_track["frames"]
                 )
             ]
         ]
@@ -209,6 +219,7 @@ def preprocess_tracks():
     for track_idx, track in enumerate(ft["tracks"]):
         data = {
             "patterns": [],
+            "canonical-phrase-list": [], # contains tuples (channel, phrase-idx) ordered as they appear in the song.
             "channels": [{
                 # ft instruments used
                 "instr_f": set(),
@@ -228,6 +239,8 @@ def preprocess_tracks():
             for chan_idx, chan in enumerate(pattern):
                 channel_phrase_data = {
                     "rows": [],
+                    "prev-phrases": set(), # phrases which come immediately before this phrase. -1 means the phrase is a starting phrase
+                    "used": False, # is this phrase used at all in the track?
                 }
                 channel_data = data["channels"][chan_idx]
                 
@@ -240,10 +253,32 @@ def preprocess_tracks():
                         instr = int(row["instr"], 16)
                         channel_data["instr_f"].add(instr)
                     channel_phrase_data["rows"].append(row_data)
+        # determine canonical pattern order
+        frames = track["frames"]
+        for i, frame in enumerate(frames):
+            for channel_idx, phrase_idx in enumerate(frame):
+                phrase_data = data["patterns"][phrase_idx]["channels"][channel_idx]
+
+                canonical = (channel_idx, phrase_idx)
+                if canonical not in data["canonical-phrase-list"]:
+                    data["canonical-phrase-list"].append(canonical)
+                phrase_data["used"] = True
+                
+                # set previous phrase for next phrase
+                if i < len(frames) - 1:
+                    next_frame = frames[i + 1]
+                    next_phrase_idx = next_frame[channel_idx]
+                    assert phrase_idx < len(data["patterns"])
+                    assert next_phrase_idx < len(data["patterns"])
+                    next_phrase_data = data["patterns"][next_phrase_idx]["channels"][channel_idx]
+                    next_phrase_data["prev-phrases"].add(phrase_idx)
+                if i == 0:
+                    phrase_data["prev-phrases"].add(-1)
+
         # TODO: identify channels which can use the same instruments and phrases,
         # then merge their channel structs
         for channel in data["channels"]:
-            assert len(channel["instr_f"]) <= NUM_INSTRS, "too many instruments on channel"
+            assert len(channel["instr_f"]) <= NUM_INSTRS, "too many instruments on channel" + error_context(track= track_idx, channel= channel)
             # assign instrument idxs
             empty_instrument_found = False
             for data_idx, ft_idx in enumerate(channel["instr_f"]):
@@ -278,10 +313,65 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     state_echo_vol_pending_addr = -1
     state_note = None
     state_sweep = False
+    echo_buffer = []
 
     # preprocesser channel data
     channel_pdata_phrase = track_data[song_idx]["patterns"][pattern_idx]["channels"][chan_idx]
     channel_pdata = track_data[song_idx]["channels"][chan_idx]
+    assert channel_pdata_phrase["used"] # should not process unused phrase
+
+    # determine previous phrase data
+    prev_phrase_idxs = channel_pdata_phrase["prev-phrases"]
+    phrase_info = ""
+    if -1 in prev_phrase_idxs:
+        phrase_info = "phrase appears at the start of the track"
+    else:
+        prev_phrases = [track_data[song_idx]["patterns"][idx]["channels"][chan_idx] for idx in prev_phrase_idxs]
+        # get common suffix of echo buffer
+        if len(prev_phrase_idxs) == 0:
+            phrase_info = "no previous phrases identified"
+        elif len(prev_phrase_idxs) == 1:
+            prev_phrase_idx = list(prev_phrase_idxs)[0]
+            prev_phrase = prev_phrases[0]
+            phrase_info = "exactly one previous phrase; idx " + str(prev_phrase_idx)
+            if "echo-buffer" not in prev_phrase:
+                phrase_info += ", but has no echo buffer data"
+            else:
+                echo_buffer = prev_phrase["echo-buffer"]
+        else:
+            phrase_info = str(len(prev_phrase_idxs)) + " previous phrases identified"
+            done = False
+            for i in range(100): # get up to 100 previous echo buffer entries
+                if done:
+                    break
+
+                # identify common echo buffer value
+                echo_v = None
+                for prev_phrase_idx, prev_phrase in zip(prev_phrase_idxs, prev_phrases):
+                    if "echo-buffer" not in prev_phrase:
+                        done = True
+                        phrase_info += ", but phrase idx " + str(prev_phrase_idx) + " has no echo buffer"
+                        break
+                    else:
+                        prev_echo_buffer = prev_phrase["echo-buffer"]
+                        if i >= len(prev_echo_buffer):
+                            phrase_info += "and phrase idx's echo buffer limits to only " + str(len(prev_echo_buffer)) + " values"
+                            done = True
+                            break
+                        else:
+                            prev_echo_v = prev_echo_buffer[-i - 1]
+                            if echo_v is None:
+                                echo_v = prev_echo_v
+                            else:
+                                if prev_echo_v != echo_v:
+                                    phrase_info += ", but their echo buffers differ at end position " + str(i)
+                                    done = True
+                                    break
+                if done:
+                    break
+                else:
+                    echo_buffer = [echo_v] + echo_buffer
+
 
     phrase_len = get_rows_in_phrase(pattern) or track["patternLength"]
     assert len(phrase) == track["patternLength"]
@@ -291,8 +381,6 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
         "wait_byte_idx": 0,
         "state_cut": False
     }
-
-    echo_buffer = []
 
     def out_byte(v):
         assert v >= 0 and v < 0x100
@@ -361,7 +449,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 if val[0] == "-":
                     val = note[2]
                 val = int(val, 16) + 1
-                assert val - 1 < len(echo_buffer), "reaching into previous pattern not allowed for echo buffer"
+                assert val - 1 < len(echo_buffer), "echo buffer overreach" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx) + "; " + (no_prev_phrase_reason if prev_phrase is None else "previous phrase is well-defined, but its echo buffer not long enough?")
                 note = echo_buffer[-val]
             else:
                 # standard note
@@ -407,7 +495,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 out_byte(argx)
             elif op == "4":
                 effect_applied = True
-                assert chan_idx != NSE_NOISE, "noise channel does not support vibrato"
+                assert chan_idx != NSE_NOISE, "noise channel does not support vibrato" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
                 if nibx[0] == 0 or nibx[1] == 0:
                     # cancel vibrato
                     out_byte(opcodes["vibrato-cancel"])
@@ -452,8 +540,10 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 effect_applied = True
                 # TODO: set duty cycle
                 pass
+            elif op in ["G"]:
+                print("WARNING: ignoring not-yet-implemented command: " + effect)
             else:
-                assert False, "unrecognized command: " + effect
+                assert False, "unrecognized command: " + effect + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
         
         # write volume if it has changed
         vol_change = False
@@ -480,7 +570,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
 
         elif release:
             if note_change:
-                assert False, "change of pitch and release not allowed simultaneously"
+                assert False, "change of pitch and release not allowed simultaneously" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
             
             out_byte(opcodes["release"])
             out_nibbles(vol_nibble(), 0)
@@ -548,8 +638,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             out_byte(note_opcode(note, echo))
 
             # instrument and wait
-            assert state_instr != None, "cannot play note without setting instrument."
-            assert state_instr >= 0 and state_instr < 0x10, "instrument must be in range 0-F"
+            assert state_instr != None, "cannot play note without setting instrument." + error_context(track=song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
+            assert state_instr >= 0 and state_instr < 0x10, "instrument must be in range 0-F" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
             out_nibbles(state_instr, 0)
             set_wait(row_idx)
         elif vol_change:
@@ -570,6 +660,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             if state_sweep:
                 print("Warning: hardware sweep active at end of frame!")
             break
+    channel_pdata_phrase["echo-buffer"] = echo_buffer
     data[0] = loop_point
     assert len(data) > loop_point
     assert data[loop_point] != 0 # this would cause an infinite loop
@@ -695,7 +786,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
             chunkp["align"] = 2
             if arpset == "fixed":
                 # support could be added, but where to store mode macro..?
-                assert not "mode_macro" in kwargs, "fixed arp macros not available for noise channel"
+                assert not "mode_macro" in kwargs, "fixed arp macros not available for noise channel" + error_context(type= type, label= label, **kwargs.get("context", {}))
                 # fixed macros are distinguished from arp macros by
                 # starting at an odd address
                 chunkp["alignoff"] = 1
@@ -706,7 +797,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                     if is_release or not has_release:
                         data += [0xFF]
             elif arpset == "relative":
-                assert False, "relative pitch macros not supported"
+                assert False, "relative pitch macros not supported" + error_context(type= type, label= label, **kwargs.get("context", {}))
             elif arpset in ["scheme", "absolute"]:
                 mode_macro = None
                 if "mode_macro" in kwargs and kwargs["mode_macro"] is not None:
@@ -715,9 +806,12 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                     mode_loop = mode_macro["loop"]
                     mode_release = mode_macro["release"]
                     mode_data = mode_macro["data"]
-                    assert mode_loop == ft_macro["loop"], "mode/arp loop point does not match"
-                    assert mode_release == ft_macro["release"], "mode/arp release point does not match"
-                    assert len(mode_data) == len(ft_macro["data"]), "mode/arp data lengths do not match"
+                    if mode_loop != ft_macro["loop"]:
+                        print("WARNING: mode/arp loop point does not match" + error_context(type= type, label= label, **kwargs.get("context", {})))
+                    if mode_release != ft_macro["release"]:
+                        print("WARNING: mode/arp release point does not match" + error_context(type= type, label= label, **kwargs.get("context", {})))
+                    if len(mode_data) != len(ft_macro["data"]):
+                        print("WARNING: mode/arp data lengths do not match" + error_context(type= type, label= label, **kwargs.get("context", {})))
                 for i, b in enumerate(ft_data):
                     x = False
                     y = False
@@ -738,7 +832,14 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                         b = abs(b)
 
                     if mode_macro:
-                        mode_data_i = i + (release if is_release else 0)
+                        if is_release:
+                            mode_data_i = i + mode_release
+                            if i >= len(mode_data):
+                                i = max(0, len(mode_data_i) - 1)
+                        else:
+                            mode_data_i = i
+                            if i >= mode_release:
+                                i = max(0, mode_release - 1)
                         mode = mode_data[mode_data_i] != 0
                         b &= 0xF
 
@@ -760,7 +861,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
             # no support for other macros yet.
             assert False
 
-        assert 0 not in data, "macros cannot contain 0"
+        assert 0 not in data, "macros cannot contain 0" + error_context(type= type, label= label, **kwargs.get("context", {}))
         
         # add loop point to release
         loop = 1
@@ -837,15 +938,16 @@ def make_macro_chunks():
                         continue
                     # add chunks
                     if macro_type == "arpmode":
-                        ft_macro_idx = ft_instr["macros"][4]
-                        if ft_macro_idx < 0 or (4, ft_macro_idx) not in ft["macros"]:
+                        ft_mode_type_idx = 4
+                        ft_mode_macro_idx = ft_instr["macros"][ft_mode_type_idx]
+                        if ft_mode_macro_idx < 0 or (ft_mode_type_idx, ft_mode_macro_idx) not in ft["macros"]:
                             ft_mode_macro = None
                         else:
-                            ft_mode_macro = ft["macros"][(4, ft_macro_idx)]
+                            ft_mode_macro = ft["macros"][(ft_mode_type_idx, ft_mode_macro_idx)]
                         # noise arp requires an additional macro
-                        chunks += make_macro_chunk(macro_type, ft_macro, label, mode_macro=ft_mode_macro)
+                        chunks += make_macro_chunk(macro_type, ft_macro, label, mode_macro=ft_mode_macro, context={"ft_macro_idx": ft_macro_idx, "ft_macro_type": mtidx, "ft_mode_macro_idx": ft_mode_macro_idx, "ft_mode_macro_type": ft_mode_type_idx})
                     else:
-                        chunks += make_macro_chunk(macro_type, ft_macro, label)
+                        chunks += make_macro_chunk(macro_type, ft_macro, label, context={"ft_macro_idx": ft_macro_idx, "ft_macro_type": mtidx})
 
     return chunks
 
@@ -877,28 +979,17 @@ def make_instr_chunks():
 def make_phrase_chunks():
     chunks =  []
     for track_idx, track in enumerate(ft["tracks"]):
-        phrase_chunks[track_idx] = [[] for i in range(NUM_CHANS)]
-        for pattern_idx in track["patterns"]:
+
+        # process phrases in canonical order
+        for chan_idx, pattern_idx in track_data[track_idx]["canonical-phrase-list"]:
             pattern = track["patterns"][pattern_idx]
-            for chan_idx, chpattern in enumerate(pattern):
-                data = make_phrase_data(track_idx, chan_idx, pattern_idx)
-                phrase_chunks[track_idx][chan_idx].append(chunk(
-                    ("song", track_idx, "channel", chan_idx, "phrase", pattern_idx),
-                    data
-                ))
-                assert(is_chunk(phrase_chunks[track_idx][chan_idx][-1]))
-        
-        # only add the phrase chunks for the phrases which actually appear in the song
-        used_chunks = set()
-        for frame in track["frames"]:
-            for chan_idx, phrase_idx in enumerate(frame):
-                used_chunks.add((chan_idx, phrase_idx))
-        for used_chunk in used_chunks:
-            chan_idx = used_chunk[0]
-            phrase_idx = used_chunk[1]
-            ch = phrase_chunks[track_idx][chan_idx][phrase_idx]
-            assert is_chunk(ch)
-            chunks.append(ch)
+            data = make_phrase_data(track_idx, chan_idx, pattern_idx)
+            label = ("song", track_idx, "channel", chan_idx, "phrase", pattern_idx)
+            chunks.append(chunk(
+                label,
+                data
+            ))
+            assert(is_chunk(chunks[-1]))
     return chunks
 
 def ft_to_data(path):
@@ -915,10 +1006,12 @@ def ft_to_data(path):
     chunks += make_instr_chunks() + make_phrase_chunks()
 
     chunks = make_vibrato_chunks() + make_groove_chunks() + chunks
-
     chunks += [
+        # instruments and phrases per channel (per track)
         *[channel_chunk(i, j) for i in range(len(ft["tracks"])) for j in range(NUM_CHANS)],
+        # channels and frames per track
         *[song_chunk(i) for i in range(len(ft["tracks"]))],
+        # list of tracks
         chunk("song_table", [
             chunkptr(("song", i))
             for i in range(len(ft["tracks"]))

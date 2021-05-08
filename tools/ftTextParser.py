@@ -20,6 +20,8 @@ token_insts = [
     "INSTS5B"
 ]
 
+macro_names = ["volume", "arpeggio", "pitch", "hi-pitch", "duty"]
+
 # returns dict containing ft data, representable in json.
 def ftParseTxt(path):
     lines = []
@@ -109,7 +111,7 @@ def ftParseTxt(path):
             macros[(z[0], z[1])] = {
                 "chipname": op,
                 "chip": token_macros.index(op),
-                "type": ["volume", "arpeggio", "pitch", "hi-pitch", "duty"][z[0]],
+                "type": macro_names[z[0]],
                 "typeidx": z[0],
                 "index": z[1],
                 "loop": z[2],

@@ -21,4 +21,7 @@ castlevania3.bin: code/* include/* data/* game.s Makefile
 	rm game.o
 
 nes: castlevania3.bin tools/*.py
-	python3 tools/buildNes.py ${DEFINES}
+	python3 ${PYARGS} tools/buildNes.py ${DEFINES}
+
+clean:
+	rm -f build/castlevania3build.nes

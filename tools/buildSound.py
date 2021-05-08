@@ -50,7 +50,7 @@ def build(prg):
         symfile.write("\n")
         addr_soundtable_lo = symbols["nse_soundTable_lo"]
         addr_soundtable_hi = symbols["nse_soundTable_hi"]
-        chunks = ftToData.ft_to_data("resources/AoC_Demo.txt")
+        chunks = ftToData.ft_to_data("resources/AoC_Demo_2.txt")
         chunklabels = [chunk["label"] for chunk in chunks]
 
         assign_chunk("null32", *symbols["nullTable"])
