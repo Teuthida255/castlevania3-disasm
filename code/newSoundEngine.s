@@ -608,9 +608,11 @@ nse_updateSound:
     ldx wMix_CacheReg_Tri_Lo.w
     ldy wMix_CacheReg_Tri_Hi.w
     sei
-    sta TRI_LINEAR
-    stx TRI_LO
-    sty TRI_HI
+    .ifndef NSE_NO_TRI
+        sta TRI_LINEAR
+        stx TRI_LO
+        sty TRI_HI
+    .endif
 
     ; write square registers
     .macro sqregset
@@ -629,17 +631,27 @@ nse_updateSound:
         +
     .endm
 
-    sqregset 1
-    sqregset 2
-    sqregset 3
-    sqregset 4
+    .ifndef NSE_NO_PULSE_1
+        sqregset 1
+    .endif
+    .ifndef NSE_NO_PULSE_2
+        sqregset 2
+    .endif
+    .ifndef NSE_NO_PULSE_3
+        sqregset 3
+    .endif
+    .ifndef NSE_NO_PULSE_4
+        sqregset 4
+    .endif
 
     ; noise channel
-    lda wMix_CacheReg_Noise_Vol.w
-    sta NOISE_VOL
+    .ifndef NSE_NO_NOISE
+        lda wMix_CacheReg_Noise_Vol.w
+        sta NOISE_VOL
 
-    lda wMix_CacheReg_Noise_Lo.w
-    sta NOISE_LO
+        lda wMix_CacheReg_Noise_Lo.w
+        sta NOISE_LO
+    .endif
     
     ; triangle channel needs special attention afterward
     ; (need to mute sometimes)
@@ -652,7 +664,9 @@ nse_updateSound:
     ;   (cannot have a pending mute while not currently muted)
     sta APU_FRAME_CTR
     asl ; A <- 0
-    sta wMusTri_Prev.w ; unmark pending mute
+    .ifndef NSE_NO_TRI
+        sta wMusTri_Prev.w ; unmark pending mute
+    .endif
 
 +   plp
     ; END CRITICAL SECTION ----------------------

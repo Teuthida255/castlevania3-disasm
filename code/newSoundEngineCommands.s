@@ -116,7 +116,7 @@ nse_execSqTriNoise:
     ; effects 9c-9f are invalid
     .macro _assertf_nse_9c_9f
         cmp #$A0
-        bcc @@@@fail
+        fail_if bcc
     .endm
     ASSERT _assertf_nse_9c_9f
 

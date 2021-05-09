@@ -5,6 +5,8 @@ import os
 import symparser
 
 outf = None
+outf_lua_ram = open("lua/symbols_ram.lua", "w")
+outf_lua_ram.write("g_symbols_ram = {}\n")
 previdx = None
 
 started_files = set()
@@ -45,9 +47,14 @@ for bank, addr in revmap:
     while len(hex4) < 4:
         hex4 = "0" + hex4
 
-    oline = "$" + hex4 + "#" + name.replace("#","_").replace(" ", "_") + "#\n"
+    sanname = name.replace("#","_").replace(" ", "_")
+    oline = "$" + hex4 + "#" + sanname + "#\n"
+    if addr < 0x8000:
+        outf_lua_ram.write('g_symbols_ram["' + name.replace('"', '\\"') + '"] = 0x' + hex4 + "\n")
 
     outf.write(''.join(filter(lambda x: x in printable, oline)))
+
+outf_lua_ram.write("symbols = {g_symbols_ram=g_symbols_ram}\nreturn symbols")
 
 if outf:
     outf.close()

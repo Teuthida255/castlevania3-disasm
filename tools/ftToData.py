@@ -801,7 +801,6 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
             elif arpset in ["scheme", "absolute"]:
                 mode_macro = None
                 if "mode_macro" in kwargs and kwargs["mode_macro"] is not None:
-                    print(label)
                     mode_macro = kwargs["mode_macro"]
                     mode_loop = mode_macro["loop"]
                     mode_release = mode_macro["release"]
