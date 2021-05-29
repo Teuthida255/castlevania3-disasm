@@ -15,10 +15,13 @@ CHANNEL_MACROS = {
 
 g_line = 0
 g_channel = 0
+g_print_emu_only = false
 CHAN_COUNT = 7
 STR_START = 1 -- conceptually, this is 0 in C
 g_select_high = false
 g_frame_idx = 0
+
+emu.print("starting...")
 
 -- ternary if
 function tern(c, t, f)
@@ -33,17 +36,18 @@ function print_fceux_reset()
     g_line = 0
     g_frame_idx = g_frame_idx + 1
     if g_frame_idx == 1 then
-        print("---------------------------------")
+        emu.print("---------------------------------")
     end
 end
 
 function print_fceux(s, onscreen)
+    if g_print_emu_only then
+        emu.print(s)
+        return
+    end
     if onscreen or onscreen == nil then
         gui.text(4,12 + g_line * 8, s)
         g_line = g_line + 1
-    end
-    if g_frame_idx == 1 then
-        print(s)
     end
 end
 
@@ -162,6 +166,21 @@ function display()
         end
     end
 end
+
+-- main:
+
+-- we use on_save_state to perform debugging tasks.
+function on_save_state()
+    emu.print("")
+    emu.print("=========================================")
+    emu.print("save state interrupt receieved.")
+    emu.print("")
+    g_print_emu_only = true
+    handle_input()
+    display()
+    g_print_emu_only = false
+end
+savestate.registersave(on_save_state)
 
 while (true) do
     print_fceux_reset()
