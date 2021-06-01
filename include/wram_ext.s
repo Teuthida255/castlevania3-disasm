@@ -97,7 +97,7 @@
     wMusChannel_ArpXY:
         dsb NUM_CHANS
 
-    ; portamento rate. If this is non-zero, arpeggios are enabled.
+    ; portamento rate. If this is non-zero, arpeggios are disabled.
     wMusChannel_portrate:
         dsb NUM_CHANS
 

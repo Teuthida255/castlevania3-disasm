@@ -201,6 +201,7 @@ nse_exec_effect:
     beq nse_exec_release ; optional: remove this
 
     .macro _assertf_nse_effect_max
+        ; assert command in range B0-BD
         cmp #$BD-$B0
         bcs @@@@fail
     .endm
@@ -346,6 +347,7 @@ nse_exec_effect_vibrato_cancel:
 
 nse_exec_groove:
     ; (X = channel idx + 1)
+    txa
     jsr nse_nextMacroByte_noloop
     sta wNSE_genVar0
     ldx wChannelIdx_a1
