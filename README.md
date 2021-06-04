@@ -14,3 +14,10 @@
 * `include` is RAM defines and some other helper files like `constants.s` and `macros.s`
 * `json` is intermediate data, created by scripts for use in other scripts
 * `tools` has the scripts for data extraction, tilemap generating, and in the future, everything else we need to speed up development
+* `lua` contains scripts for debugging when using FCEUX. (First run the fceux_symbols python script in tools, then run `fceux --loadlua nse.lua build/castlevania3build.nes`)
+
+## Development
+* When adding new opcodes or adjusting existing ones, make sure to update the following:
+  * code/newSoundEngineCommands.s
+  * tools/ftToData.py
+  * lua/nse_opcodes.lua (function 'display_pattern')

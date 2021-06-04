@@ -624,8 +624,9 @@ nse_updateSound:
 
         ; only update Hi if it has changed
         lda wMix_CacheReg_Sq\1_Hi.w
-        eor SQ\1_HI
-        and #%00000111
+        cmp SQ\1_HI
+        ;eor SQ\1_HI
+        ;and #%00000111 ; only compare timer value, not length counter load.
         beq +
         sta SQ\1_HI
         +

@@ -106,6 +106,7 @@ pitchFrequencies_hi:
     .db $01 ; F#3
     .db $01 ; G-3
     .db $01 ; G#3
+nullTable: ; must be at least 32 zeros in a row (also part of volume table)
     .db $00 ; A-3
     .db $00 ; A#3
     .db $00 ; B-3
@@ -118,6 +119,7 @@ pitchFrequencies_hi:
     .db $00 ; F#4
     .db $00 ; G-4
     .db $00 ; G#4
+nse_tuning_A4_hi:
     .db $00 ; A-4
     .db $00 ; A#4
     .db $00 ; B-4
@@ -200,6 +202,7 @@ pitchFrequencies_lo:
     .db $95 ; F#4
     .db $8C ; G-4
     .db $84 ; G#4
+nse_tuning_A4_lo:
     .db $7D ; A-4
     .db $76 ; A#4
     .db $6F ; B-4
@@ -284,11 +287,7 @@ volumeTable:
     .db      4, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 0
     .db      3, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
     .db      2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
-    .db      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-nullTable: ; 32 zeros in a row (also part of volume table above)
-    .rept 32
-    .db      0
-    .endr
+    .db      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0
 
 nse_soundData:
     ; (filled in by buildSound.py)

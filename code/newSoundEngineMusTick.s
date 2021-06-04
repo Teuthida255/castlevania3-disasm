@@ -572,6 +572,8 @@ nse_musTickSq:
     lda wSoundFrequency
     sta wMix_CacheReg_start+1.w, y
     lda wSoundFrequency+1
+    ; set length counter load to non-zero value
+    ora #$80
     sta wMix_CacheReg_start+2.w, y
 @writeRegistersRTS:
     rts

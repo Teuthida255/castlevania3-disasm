@@ -6,7 +6,9 @@ import symparser
 
 outf = None
 outf_lua_ram = open("lua/symbols_ram.lua", "w")
+outf_lua_ram.write("-- this file is generated automatically by fceux_symbols.py\n")
 outf_lua_ram.write("g_symbols_ram = {}\n")
+outf_lua_ram.write("g_symbols_ram_bank = {}\n")
 previdx = None
 
 started_files = set()
@@ -49,12 +51,14 @@ for bank, addr in revmap:
 
     sanname = name.replace("#","_").replace(" ", "_")
     oline = "$" + hex4 + "#" + sanname + "#\n"
-    if addr < 0x8000:
-        outf_lua_ram.write('g_symbols_ram["' + name.replace('"', '\\"') + '"] = 0x' + hex4 + "\n")
+
+    outf_lua_ram.write('g_symbols_ram["' + name.replace('"', '\\"') + '"] = 0x' + hex4 + "\n")
+    if addr >= 0x8000:
+        outf_lua_ram.write('g_symbols_ram_bank["' + name.replace('"', '\\"') + '"] = ' + hex(bank) + "\n")
 
     outf.write(''.join(filter(lambda x: x in printable, oline)))
 
-outf_lua_ram.write("symbols = {g_symbols_ram=g_symbols_ram}\nreturn symbols")
+outf_lua_ram.write("symbols = {g_symbols_ram=g_symbols_ram, g_symbols_ram_bank=g_symbols_ram_bank}\nreturn symbols")
 
 if outf:
     outf.close()

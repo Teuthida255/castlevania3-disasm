@@ -24,4 +24,4 @@ nes: castlevania3.bin tools/*.py
 	python3 ${PYARGS} tools/buildNes.py ${DEFINES}
 
 clean:
-	rm -f build/castlevania3build.nes
+	rm -f build/castlevania3build.nes castlevania3.bin

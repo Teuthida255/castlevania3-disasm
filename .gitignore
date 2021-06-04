@@ -12,3 +12,4 @@ __pycache__/
 resources/
 memwatch.txt
 build/
+.vscode/settings.json
