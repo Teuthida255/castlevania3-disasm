@@ -3,6 +3,9 @@
 -- interprets pattern starting at the given rom address
 function interpret_pattern(chan_idx_a1, addr)
 
+  local track_data = tracks[1]
+  local channel_data = track_data.channels[chan_idx_a1]
+
   -- remember addr (we'll be editing it)
   base_addr = addr
 
@@ -157,8 +160,11 @@ function interpret_pattern(chan_idx_a1, addr)
     end
 
     -- read instrument (optional)
-    if read_instr ~= nil then
+    if read_instr ~= nil and read_instr ~= 0 then
       s = s .. " instr:" .. HEX(read_instr)
+      if channel_data[read_instr + 1] then
+        s = s .. ' "' .. channel_data[read_instr + 1].name .. '"'
+      end
     end
 
     if read_vol ~= nil and read_vol ~= 0 then

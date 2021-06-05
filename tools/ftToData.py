@@ -19,6 +19,8 @@ NSE_DPCM = 4
 NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
 
+# debug symbol code to help lua debugging
+
 channel_macros = [
     ["arp", "detune", "vol", "duty"], # sq1
     ["arp", "detune", "vol", "duty"], # sq2
@@ -217,6 +219,7 @@ track_data = []
 def preprocess_tracks():
     for track_idx, track in enumerate(ft["tracks"]):
         data = {
+            "name": track["title"],
             "patterns": [],
             "canonical-phrase-list": [], # contains tuples (channel, phrase-idx) ordered as they appear in the song.
             "channels": [{
@@ -1017,6 +1020,23 @@ def ft_to_data(path):
     ]
 
     return chunks
+
+def get_lua_symbols():
+    lua = ""
+    for track_idx, track in enumerate(track_data):
+        lua += "tracks = {}\n"
+        trackv = f"tracks[{track_idx + 1}]"
+        lua += trackv + " = {}\n"
+        lua += f"{trackv}.name = \"{track['name']}\"\n"
+        lua += trackv + ".channels = {}\n"
+        for channel_idx, channel in enumerate(track["channels"]):
+            lua += f"{trackv}.channels[{channel_idx + 1}] = " + "{}\n"
+            for instr_idx in channel["instr_df"]:
+                instr_f_idx = channel["instr_df"][instr_idx]
+                lua += f"{trackv}.channels[{channel_idx + 1}][{instr_idx + 1}] = " + "{}\n"
+                lua += f"{trackv}.channels[{channel_idx + 1}][{instr_idx + 1}].name = \"{ft['instruments'][instr_f_idx]['name']}\"\n"
+                
+    return lua
 
 # run this as a shell script
 if __name__ == "__main__":

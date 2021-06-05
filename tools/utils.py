@@ -99,3 +99,55 @@ def HX(arg, digits=1):
 
 if __name__ == '__main__':
     getOutstandingLines()
+
+# https://www.daniweb.com/programming/software-development/code/426990/split-string-except-inside-brackets-or-quotes
+def splitq (seq, sep=None, pairs=("()", "[]", "{}"), quote='"\'') :
+    """Split seq by sep but considering parts inside pairs or quoted as unbreakable
+       pairs have diferent start and end value, quote have same symbol in beginning and end
+       use itertools.islice if you want only part of splits
+
+    """
+    if not seq:
+        return []
+    else:
+        r = []
+        lsep = len(sep) if sep is not None else 1
+        lpair, rpair = zip(*pairs)
+        pairs = dict(pairs)
+        start = index = 0
+        while 0 <= index < len(seq):
+            c = seq[index]
+            #print index, c
+            if (sep and seq[index:].startswith(sep)) or (sep is None and c.isspace()):
+                r.append(seq[start:index])
+                #pass multiple separators as single one
+                if sep is None:
+                    index = len(seq) - len(seq[index:].lstrip())
+                    #if index < len(seq):
+                    #    print(repr(seq[index]),index)
+                else:
+                    while (sep and seq[index:].startswith(sep)):
+                        index = index + lsep
+                start = index
+
+            elif c in quote:
+                index += 1
+                p, index = index, seq.find(c,index) + 1
+                if not index:
+                    raise IndexError('Unmatched quote %r\n%i:%s' % (c, p, seq[:p]))
+            elif c in lpair:
+                nesting = 1
+                while True:
+                    index += 1
+                    p, index = index, seq.find(pairs[c], index)
+                    if index < 0:
+                        raise IndexError('Did not find end of pair for %r: %r\n%i:%s' % (c, pairs[c], p, seq[:p]))
+                    nesting += '{lpair}({inner})'.format(lpair=c, inner=splitq(seq[p:index].count(c) - 2))
+                    if not nesting:
+                        break
+
+            else:
+                index += 1
+        if seq[start:]:
+            r.append(seq[start:])
+    return r

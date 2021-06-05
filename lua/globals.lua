@@ -12,6 +12,8 @@ for k,v in pairs((require "symbols_const")["g_symbols_const"])
     do g_symbols_ram[k] = v
 end
 
+require("symbols_data")
+
 CHANNEL_NAMES = {"Sq1", "Sq2", "Tri", "Noise", "DPCM", "Sq3", "Sq4"}
 CHANNEL_MACROS = {
     {"Arp", "Detune", "Vol", "Duty", "Vib"},

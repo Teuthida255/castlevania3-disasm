@@ -2,7 +2,7 @@ from utils import groupBytes
 from utils import *
 
 def lineComps(line):
-    return [c for c in line.split() if c]
+    return [c for c in splitq(line, " ") if c]
 
 def join(_bytes):
     return " ".join(f'${b:02x}' for b in _bytes)
@@ -136,7 +136,7 @@ def ftParseTxt(path):
                 "type": op,
                 "index": z[0],
                 "macros": z[1:6],
-                "name": args[6],
+                "name": args[6].replace('"', ""),
                 "dpcmkeys": {}
             })
 
@@ -158,7 +158,7 @@ def ftParseTxt(path):
                 "useGroove": len(tracks) in usegroove,
                 "speed": z[1],
                 "tempo": z[2],
-                "title": args[3],
+                "title": args[3].replace('"', ""),
                 "columns": [],
                 "frames": [],
                 "patterns": {}

@@ -84,3 +84,7 @@ def build(prg):
                 symfile.write(HX(bank, 2) + ":" + HX(addr, 4) + " " + fceux_symbol_from_label(chunk) + "\n")
         print("bytes written:", hex(outaddr[1] - pre_addr))
         pre_addr = outaddr[1]
+
+        lua = ftToData.get_lua_symbols()
+        with open("lua/symbols_data.lua", "w") as f:
+            f.write(lua)

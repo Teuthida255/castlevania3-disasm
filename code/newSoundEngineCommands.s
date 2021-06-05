@@ -450,6 +450,7 @@ nse_exec_readInstrWait:
 
 @setInstr:
     ; Y <- 2 * high nibble (i.e., 2 * new instrument)
+    ; OPTIMIZE: use special  AND-SHIFT op
     and #$F0
     ; OPTIMIZE: compare with cached instrument value?
     shift -3
