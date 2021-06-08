@@ -131,6 +131,13 @@
     sta \2+1
 .endm
 
+; undocumented 6502 opcode ("alr")
+; AND immediate then LSR.
+.macro alr ARGS amt
+    .db $4B
+    .db amt
+.endm
+
 .macro bit_skip_1
     ; BIT trick (byte addr)
     .db $24
@@ -158,6 +165,9 @@
 
 .define UNUSED $0
 
+; shift by X amount
+; if X > 0: left shift
+; if X < 0: right shift
 .macro shift
     .if \1 < 0
         .rept -\1
@@ -202,6 +212,11 @@
     .ifndef __pass_by_default__
         .define __pass_by_default__
     .endif
+.endm
+
+.macro LUA_ASSERT
+    ; lua can read these.
+    @@@\@_LUASRT_\1:
 .endm
 
 .macro ASSERT

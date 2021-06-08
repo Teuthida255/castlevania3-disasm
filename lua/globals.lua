@@ -35,6 +35,8 @@ CHANNEL_REGISTERS = {
     {}
 }
 
+CHANNEL_COUNT = 7
+
 CHANNEL_CACHE_REGISTERS = {
     {"Vol", "Lo", "Hi"},
     {"Vol", "Lo", "Hi"},
@@ -46,6 +48,9 @@ CHANNEL_CACHE_REGISTERS = {
 }
 
 DISPLAY_CACHED_REGISTERS = false
+TRACK_CHANNEL_INSTRUMENT = true
+DISPLAY_CHANNEL_INSTRUMENT = true
+DISPLAY_CHANNEL_VARS = true
 DISPLAY_INTERPRETED_CACHED_REGISTERS = true
 DISPLAY_REGISTERS = true
 DISPLAY_PATTERN = true
@@ -63,3 +68,4 @@ DISPLAY_CHANNELS = {true, true, true, true, true, true, true}
 
 CPU_HZ = 1789773
 TUNING_A4_HZ = 440 -- replaced in ram_parser
+NSE_BANK = 0x20 -- replaced in ram_parser

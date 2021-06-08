@@ -924,7 +924,8 @@ def make_macro_chunks():
                     ft_instr = ft["instruments"][ft_instr_idx]
                     mtidx = ft_macro_type_idx[macro_type]
                     ft_macro_idx = ft_instr["macros"][mtidx]
-                    if ft_macro_idx < 0 or (mtidx, ft_macro_idx) not in ft["macros"]:
+                    # TEMP DEBUG: 'macro_type != "vol"'
+                    if ft_macro_idx < 0 or (mtidx, ft_macro_idx) not in ft["macros"] or macro_type != "vol":
                         # no macro set.
                         chunks.append(
                             nullchunk(label)

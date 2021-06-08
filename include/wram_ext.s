@@ -116,8 +116,9 @@
 
     ; cache values -------------
 
-    ; this could be re-calculated every instrument change, but
-    ; it's helpful to cache this instead.
+    ; points to channelDataset_t (see sounds.s).
+    ; This could be re-calculated every instrument change
+    ; (from song struct), but it's efficient to cache this instead.
     wMusChannel_CachedChannelTableAddr:
         dsw NUM_CHANS
 
@@ -189,6 +190,8 @@
         ;.endm
 
         ; sound macro fields
+        ; points to `song_t` struct
+        ; definition can be found in `sounds.s`
         wMacro@Song:
             dsb 3
 

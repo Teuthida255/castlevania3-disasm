@@ -9,6 +9,10 @@
     * assume the PRG ROM exists at `original/OR.bin`, though this is just for data extraction atm
     * require the `pypng` package to be installed. `python3 -m pip install pypng`
 
+## Notation
+* the variable suffix _a1 (in any language) means "plus one". For example, the variable `chan_idx_a1` refers to a value of *one plus the channel idx*. Thus, `chan_idx_a1 = 3` means channel idx is 2 (i.e. triangle wave).
+  * This is useful for certain performance benefits in 6502. It is also useful in Lua because Lua is 1-indexed.
+
 ## Structure
 * Disassembled PRG ROM exists in `code/`
 * `include` is RAM defines and some other helper files like `constants.s` and `macros.s`

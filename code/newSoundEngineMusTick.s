@@ -14,6 +14,16 @@
     fail_if bne
 .endm
 
+.macro assert_y_chan_idx
+    cpy wChannelIdx
+    fail_if bne
+.endm
+
+.macro assert_x_chan_idx
+    cpx wChannelIdx
+    fail_if bne
+.endm
+
 nse_musTickDPCM:
     rts
 
@@ -225,6 +235,7 @@ nse_musTickSq:
     eor wNSE_genVar1 ; ora, eor -- it doesn't matter
     tax
     lda volumeTable.w, x
+    ldy wChannelIdx_a1
 
 @before_setDutyCycle:
     ; skip duty cycle for noise channel (just push volume)
@@ -247,6 +258,7 @@ nse_musTickSq:
             ; which is reused to store duty cycle instead.
             lda wMacro_start+2.w, x
 
+            ; ASSERT assert_y_chan_idx
             ASSERT assert_only_hi_nibble
 
             ; add important register flags
@@ -259,6 +271,7 @@ nse_musTickSq:
     .define MACRO_TRAMPOLINE_SPACE
 
     nse_nextMacroByte_inline_precalc_abaseaddr wNSE_genVar7
+    ldy wChannelIdx ; restore Y after above macro call
     ldx nibbleParity
     bne +
         ; even frame -- restore previous macro offset and shift up nibble.
@@ -271,6 +284,8 @@ nse_musTickSq:
     and #$F0
 @endSetDutyCycle:
     ora wNSE_genVar0 ; OR with volume
+
+    ASSERT assert_y_chan_idx
 
 @PHA_and_ora0011_then_setFrequency:
     ; enable certain important bits in volume channel (for noise and square)
@@ -290,6 +305,8 @@ nse_musTickSq:
     ; get arpeggio (pitch offset)
     ; precondition: y = channel idx
 
+    ASSERT assert_y_chan_idx
+
     ; x <- offset of arp address
     ldx channelMacroArpAddrTable.w, y
     stx wNSE_genVar5 ; store offset for arp macro table
@@ -303,6 +320,7 @@ nse_musTickSq:
 
     ; A <- next arpeggio macro value
     lda wMacro_start+1.w, x ; skip if macro is zero.
+    LUA_ASSERT A0
     beq +
 
     ; if address is odd, this is a Fixed macro, not Arpeggio macro.

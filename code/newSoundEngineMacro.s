@@ -15,20 +15,26 @@
         .endif
         sta wSoundBankTempAddr2
     @@@_macro_loop\@:
+        ; Y <- counter++
         .ifdef MACRO_BYTE_ABSOLUTE
-            lda wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
+            ldy wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
         .else
             lda wMacro_start+2.w, X
+            tay
         .endif
+
         .if NARGS == 1
-            sta \1
-        .endif
+                sty \1
+            .endif
+
+        ; ^ (counter++)
         .ifdef MACRO_BYTE_ABSOLUTE
-            lda wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
+            inc wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
         .else
             inc wMacro_start+2.w, X
         .endif
-        tay
+
+        ; A <- macro[Y]
         lda (wSoundBankTempAddr2), Y
         .ifndef MACRO_NO_LOOP
             bne @@@_macro_end\@
@@ -116,6 +122,8 @@ nse_nextMacroByte:
 @rts:
     rts
 
+; A <- *macro[A]++; X <- 3A; Y clobbered
+; don't loop to start (permit zeroes)
 nse_nextMacroByte_noloop:
     .define MACRO_NO_LOOP
     nse_nextMacroByte_inline

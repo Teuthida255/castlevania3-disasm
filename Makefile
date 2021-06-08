@@ -15,9 +15,45 @@ ifdef ROMHACK
 		-D DEBUG
 endif
 
+ifdef NSE_NO_PULSE_1
+	DEFINES += -D NSE_NO_PULSE_1
+endif
+
+ifdef NSE_NO_PULSE_2
+	DEFINES += -D NSE_NO_PULSE_2
+endif
+
+ifdef NSE_NO_TRI
+	DEFINES += -D NSE_NO_TRI
+endif
+
+ifdef NSE_NO_NOISE
+	DEFINES += -D NSE_NO_NOISE
+endif
+
+ifdef NSE_NO_DPCM
+	DEFINES += -D NSE_NO_DPCM
+endif
+
+ifdef NSE_NO_PULSE_3
+	DEFINES += -D NSE_NO_PULSE_3
+endif
+
+ifdef NSE_NO_PULSE_4
+	DEFINES += -D NSE_NO_PULSE_4
+endif
+
 castlevania3.bin: code/* include/* data/* game.s Makefile
+
+# -I: include directory.
+# -i: include list definitions (required for line numbers)
+#   -i temporarily removed because it causes wla-6502 to error for unknown reasons.
 	wla-6502 ${DEFINES} -I . -o game.o game.s
-	wlalink -s -S linkfile castlevania3.bin
+
+# -s: write GMB/SNES symbol file
+# -S: write WLA symbol file
+# -A: include address-to-line mapping data in WLA symbol file (not in practical use -- see above)
+	wlalink -S -A linkfile castlevania3.bin
 	rm game.o
 
 nes: castlevania3.bin tools/*.py

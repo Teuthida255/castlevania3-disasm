@@ -8,6 +8,21 @@ function macro_is_null(macroAddr)
   return memory.readwordunsigned(macroAddr) == 0
 end
 
+-- gets register A
+function rA()
+  return memory.getregister("a")
+end
+
+-- gets register X
+function rX()
+  return memory.getregister("x")
+end
+
+-- gets register Y
+function rY()
+  return memory.getregister("y")
+end
+
 -- returns bankswitch register governing given ram address
 -- (always in range 0x5113 - 0x5117 inclusive)
 function get_mmc5_bankswitch_reg(addr)
@@ -41,9 +56,39 @@ function mapper_write_cb(addr, size, value)
   mmc5_bytes[addr] = value
 end
 
-function register_mapper_watch()
+g_instr_idx_by_channel = {-1, -1, -1, -1, -1, -1, -1}
+
+function break_on_set_instr(addr)
+  -- guard for bank
+  if get_bank_at_addr(addr) == g_symbols_ram_bank["nse_exec_readInstrWait@setInstr"] then
+    -- get channel idx and accumulator value (containing instrument)
+    local chan_idx_a1 = ram_read_byte_by_name("wChannelIdx_a1")
+    if chan_idx_a1 >= 1 and chan_idx_a1 <= CHANNEL_COUNT then
+      local a = memory.getregister("a")
+      local instr_idx = bit.rshift(bit.band(a, 0x1e), 1)
+
+      if chan_idx_a1 == 1 then
+        --emu.print("channel " .. HX(chan_idx_a1 - 1) .. " instr " .. instr_idx)
+        --debugger.hitbreakpoint()
+      end
+
+      g_instr_idx_by_channel[chan_idx_a1] = instr_idx
+    else
+      emu.print("invalid register")
+      debugger.hitbreakpoint()
+    end
+  end
+end
+
+function register_watchpoints()
+  -- mapper watchpoints
   memory.registerwrite(0x5100, mapper_write_cb)
   memory.registerwrite(0x5113, 5, mapper_write_cb)
+
+  -- instrument set watchpoing
+  if TRACK_CHANNEL_INSTRUMENT then
+    memory.registerexec(g_symbols_ram["nse_exec_readInstrWait@setInstrTAY"], break_on_set_instr)
+  end
 end
 
 function get_bank_at_addr(addr)
@@ -113,13 +158,37 @@ function ram_read_word_by_name(name, name_hi, offset)
   end
 end
 
+function ram_read_words(addr_lo, addr_hi, size, stride)
+  addr_hi = addr_hi or (addr_lo + 1)
+  stride = stride or tern(addr_hi == addr_lo + 1, 2, 1)
+  local t = {}
+  for i = 1,size do
+    t[i] = memory.readwordunsigned(addr_lo + i * stride, addr_hi + i * stride)
+  end
+  return t
+end
+
+function rom_read_words(addr_lo, addr_hi, size, stride)
+  addr_hi = addr_hi or (addr_lo + 1)
+  stride = stride or tern(addr_hi == addr_lo + 1, 2, 1)
+  local t = {}
+  for i = 1,size do
+    t[i] = rom.readwordunsigned(addr_lo + i * stride, addr_hi + i * stride)
+  end
+  return t
+end
+
 function get_rom_address_of_symbol(name)
   local addr = g_symbols_ram[name]
   local bank = g_symbols_ram_bank[name]
   assert(addr ~= nil and bank ~= nil, "symbol not found in rom: " .. name)
-  local in_bank_addr = addr % 0x2000 -- address within the bank (range 0-0x1fff inclusive)
+  return get_rom_address_from_ram_addr(addr, bank)
+  
+end
+
+function get_rom_address_from_ram_addr(ram_addr, bank)
   local header_offset = 0x10
-  return bank * 0x2000 + in_bank_addr + header_offset
+  return bank * 0x2000 + (ram_addr % 0x2000) + header_offset
 end
 
 function rom_read_byte_by_name(name, offset)
@@ -141,6 +210,13 @@ function rom_read_word_by_name(name, name_hi, offset)
     lo = rom_read_byte_by_name(name, offset)
     hi = rom_read_byte_by_name(name_hi, offset)
   end
+  return bit.bor(lo, bit.lshift(hi, 8))
+end
+
+function rom.readwordunsigned(addr_lo, addr_hi)
+  addr_hi = addr_hi or (addr_lo + 1)
+  lo = rom.readbyteunsigned(addr_lo)
+  hi = rom.readbyteunsigned(addr_hi)
   return bit.bor(lo, bit.lshift(hi, 8))
 end
 
@@ -175,14 +251,19 @@ function macro_tickertape(macroAddr, length, noloop)
   if addr == 0 then
       return "--"
   end
+  -- bank slot 0 only (this is where NSE_BANK loads to)
+  if addr < 0x8000 or addr >= 0x9fff then
+    return "??"
+  end
+  local rom_addr = get_rom_address_from_ram_addr(addr, NSE_BANK)
   -- current offset of macro value
   local offset = memory.readbyteunsigned(macroAddr + 2)
-  local loop_point = memory.readbyteunsigned(addr)
+  local loop_point = rom.readbyteunsigned(rom_addr)
   local start_point = tern(noloop, 0, 1)
   local s = ""
-  local lbound = math.max(math.floor(offset - length * 1 / 4), start_point)
+  local lbound = math.max(math.floor(offset - length * 1 / 4), 0)
   for i = lbound, lbound + length - 1, 1 do
-      local val = memory.readbyteunsigned(addr + i)
+      local val = rom.readbyteunsigned(rom_addr + i)
       local k = "  "
       if i == loop_point and not noloop then
           if i == start_point then
@@ -193,7 +274,9 @@ function macro_tickertape(macroAddr, length, noloop)
               k = "]@"
           end
       else
-          if i == start_point then
+          if i == 0 and not noloop then
+            k = " ^"
+          elseif i == start_point then
               k = " :"
           elseif i == offset then
               k = " ["
@@ -216,20 +299,20 @@ function macro_tickertape(macroAddr, length, noloop)
 end
 
 -- returns string interpreting sound.info()
-function interpret_registers(chan_idx_a11, info)
+function interpret_registers(chan_idx_a1, info)
   local vol = math.clamp(math.round(info.volume * 0xf), 0, 0xf)
   local notestr = hz_to_key(info.frequency)
   local duty = info.duty
   return "V:" .. hx(vol, 1) .. " D" .. tostring(info.duty) .. " " .. notestr
 end
 
-function display_stat(title, varname, chan_idx_a1, onscreen)
+function display_stat(title, varname, chan_idx_a1)
   local extra = ""
   local value = ram_read_byte_by_name(varname, chan_idx_a1 - 1)
-  if title == "pitch" then
-    extra = " " .. note_to_key(value)
+  if title == "pitch" or title == "p" then
+    extra = " (" .. note_to_key(value) .. ")"
   end
-  print_fceux(title .. " " .. CHANNEL_NAMES[chan_idx_a1] .. ": " .. string.format("%02x", value) .. extra, onscreen)
+  return title .. ":" .. HX(value, 2) .. extra
 end
 
 function interpret_cached_registers(chan_idx_a1)
@@ -317,4 +400,59 @@ function read_tuning()
   TUNING_A4_HZ = timer_to_hz(timer_a4)
   emu.print(TUNING_A4_HZ)
   assert(TUNING_A4_HZ > 1) -- if hz <= 1, almost certainly this is a mistake.
+end
+
+function read_nse_bank()
+  NSE_BANK = g_symbols_ram_bank["nse_emptySong"]
+end
+
+-- returns string describing instrument / channel table
+function interpret_channel_instrument(chan_idx_a1)
+  local s = ""
+
+  -- get address of song
+  local song_macro_addr = ram_read_word_by_name("wMacro@Song")
+
+
+  if song_macro_addr == 0 then
+    return "(No channel tables -- song is null.)\n"
+  end
+
+  -- get address of channel table
+  -- (offset in song_t struct; see sounds.s)
+  local song_rom_addr = get_rom_address_from_ram_addr(song_macro_addr, NSE_BANK)
+  local channel_table_addr = rom.readwordunsigned(song_rom_addr + 1 + 2 * (chan_idx_a1 - 1))
+
+  -- get address of cached channel table
+  local channel_table_addr_cached = ram_read_word_by_name("wMusChannel_CachedChannelTableAddr", nil, chan_idx_a1 - 1)
+
+  -- these should be the same, unless there is a bug.
+  if channel_table_addr ~= channel_table_addr_cached then
+    s = s .. "Mismatch table: " .. HX(channel_table_addr, 4) .. ", cache: " .. HX(channel_table_addr_cached, 4) .. " "
+  else
+    s = s .. "Table: " .. HX(channel_table_addr_cached, 4) .. " "
+  end
+
+  -- table is list of 0x10 pointers to instruments
+  -- use cached, since that's what's actually in use.
+  local channel_table_addr_rom = get_rom_address_from_ram_addr(channel_table_addr_cached, NSE_BANK)
+  if g_instr_idx_by_channel[chan_idx_a1] >= 0 then
+    assert(g_instr_idx_by_channel[chan_idx_a1] < 0x10)
+    local instr_addr = rom.readwordunsigned(channel_table_addr_rom + 2 * g_instr_idx_by_channel[chan_idx_a1])
+    if instr_addr ~= nil then
+      local instr_addr_rom = get_rom_address_from_ram_addr(instr_addr, NSE_BANK)
+      s = s .. "Instr " .. HX(instr_addr, 4) .. "\n"
+      for macro_idx, macro in ipairs(CHANNEL_MACROS[chan_idx_a1]) do
+        if macro ~= "Vib" then -- vibrato is not part of the instrument definition
+          local macro_addr = rom.readwordunsigned(instr_addr_rom + 2 * macro_idx)
+          s = s .. macro:sub(1, 1) .. ":" .. HX(macro_addr, 4) .. " "
+        end
+      end
+    else
+      s = s .. "\n"
+    end
+  else
+    s = s .. "\n"
+  end
+  return s
 end

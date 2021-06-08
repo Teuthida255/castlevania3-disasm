@@ -38,6 +38,9 @@ function print_fceux(s, onscreen)
     if onscreen or onscreen == nil then
         gui.text(4,12 + g_line * 8, s)
         g_line = g_line + 1
+        for i in s:gfind("\n") do
+            g_line = g_line + 1
+        end
     end
 end
 
@@ -48,6 +51,9 @@ end
 -- lua utilities (fceux-agnostic).
 require("util")
 
+-- data / debug symbols
+require("symbols_data")
+
 -- global variable definitions
 require("globals")
 
@@ -56,6 +62,9 @@ require("parse_clargs")
 
 -- functions for reading/parsing domain-specific information from RAM.
 require("ram_parser")
+
+-- watch assertions defined symbollically
+require("luasrt")
 
 -- functions for parsing pharse patterns
 require("nse_opcodes")
@@ -90,6 +99,12 @@ function display()
     local song_macro = g_symbols_ram["wMacro@Song"]
     print_fceux("song-macro: " .. macro_to_string_brief(song_macro));
 
+    -- groove info
+    local ticks_to_next_row = ram_read_byte_by_name("wMusTicksToNextRow_a1")
+    local groove_macro = g_symbols_ram["wMacro@Groove"]
+    print_fceux("groove-macro: " .. macro_to_string_brief(groove_macro, true));
+    print_fceux(HX(ticks_to_next_row) .. " |" .. macro_tickertape(groove_macro, 7, true), true)
+
     -- current channel
     local channel_idx = ram_read_byte_by_name("wChannelIdx_a1")
     local channel_idx_str = "channel-idx: " .. tostring(channel_idx) .. "  "
@@ -102,10 +117,15 @@ function display()
     end
     print_fceux(channel_idx_str)
 
+    -- track number
+    -- TODO: identify track number.
+    local track_number = 1
+
     local soundinfo = sound.get()
     
     -- each channel
     for chan_idx_a1 = 1, CHAN_COUNT do
+        local channel_data = tracks[track_number].channels[chan_idx_a1]
         if DISPLAY_CHANNELS[chan_idx_a1] then
             -- separator
             print_fceux("---", false)
@@ -118,15 +138,37 @@ function display()
             print_fceux(macro_tickertape(phrase_macro_addr, 10), onscreen)
 
             -- display channel stats
-            display_stat("rows-next-a1", "wMusChannel_RowsToNextCommand_a1", chan_idx_a1, onscreen)
-            if channel_name ~= "DPCM" then
-                display_stat("pitch", "wMusChannel_BasePitch", chan_idx_a1, onscreen)
-                display_stat("volume", "wMusChannel_BaseVolume", chan_idx_a1, onscreen)
-                display_stat("arpxy", "wMusChannel_ArpXY", chan_idx_a1, onscreen)
-                display_stat("portrate", "wMusChannel_portrate", chan_idx_a1, onscreen)
-                if channel_name ~= "Noise" then
-                    display_stat("detune", "wMusChannel_BaseDetune", chan_idx_a1, onscreen)
+            if DISPLAY_CHANNEL_VARS then
+                local s = display_stat("t", "wMusChannel_RowsToNextCommand_a1", chan_idx_a1) .. " "
+                if channel_name ~= "DPCM" then
+                    s = s .. display_stat("p", "wMusChannel_BasePitch", chan_idx_a1) .. " "
+                    s = s .. display_stat("v", "wMusChannel_BaseVolume", chan_idx_a1) .. " "
+                    s = s .. display_stat("xy", "wMusChannel_ArpXY", chan_idx_a1) .. " "
+                    s = s .. display_stat("port", "wMusChannel_portrate", chan_idx_a1) .. " "
+                    if channel_name ~= "Noise" then
+                        s = s .. display_stat("det", "wMusChannel_BaseDetune", chan_idx_a1) .. " "
+                    end
                 end
+                print_fceux(s, onscreen)
+            end
+
+            if TRACK_CHANNEL_INSTRUMENT then
+                local instr_idx = g_instr_idx_by_channel[chan_idx_a1]
+                if instr_idx >= 0 then
+                    local s = "instr " .. HX(instr_idx, 1)
+                    if instr_idx >= 0 and instr_idx < 0x10 and channel_data[instr_idx + 1] then
+                        s = s .. ' "' .. channel_data[instr_idx + 1].name .. '"'
+                    end
+                    print_fceux(s, onscreen)
+                else
+                    print_fceux("instr not set", onscreen)
+                end
+            end
+
+            -- display channel instrument
+            if DISPLAY_CHANNEL_INSTRUMENT then
+                local s = interpret_channel_instrument(chan_idx_a1)
+                print_fceux(s, onscreen)
             end
 
             -- display cached channel registers
@@ -167,7 +209,7 @@ function display()
                 if chan_macro_addr ~= nil then -- paranoia
                     local noloop = chan_macro_name == "Vib"
                     print_fceux("   " .. chan_macro_name .. ": " .. macro_to_string_brief(chan_macro_addr, noloop), onscreen)
-                    print_fceux("   " ..macro_tickertape(chan_macro_addr, 9, noloop), onscreen)
+                    print_fceux("   " .. macro_tickertape(chan_macro_addr, 9, noloop), onscreen)
                 end
             end
 
@@ -177,7 +219,7 @@ function display()
                 local phrase_bank = 0x20
                 local phrase_rom_start = phrase_start - 0x8000 + phrase_bank * 0x2000 + 0x10
                 local phrase_offset = memory.readbyteunsigned(phrase_macro_addr + 2)
-                local s = interpret_pattern(chan_idx_a1, phrase_rom_start, phrase_offset)
+                local s = interpret_pattern(chan_idx_a1, phrase_rom_start, phrase_offset, track_number)
                 print_fceux(s, false)
             end
         end
@@ -188,6 +230,7 @@ end
 -- main:
 
 -- read stats from rom
+read_nse_bank() -- (actually read from debug symbols)
 read_tuning()
 
 -- hook savestate button (to display info)
@@ -204,7 +247,10 @@ end
 savestate.registersave(on_save_state)
 
 -- mmc5 mapper watch
-register_mapper_watch()
+register_watchpoints()
+
+-- assertions
+register_asserts()
 
 while (true) do
     print_fceux_reset()

@@ -1,9 +1,9 @@
 -- can parse and interpret pattern data into commands (as in code/newSoundEngineCommands.s)
 
 -- interprets pattern starting at the given rom address
-function interpret_pattern(chan_idx_a1, addr)
+function interpret_pattern(chan_idx_a1, addr, offset, track_number)
 
-  local track_data = tracks[1]
+  local track_data = tracks[track_number]
   local channel_data = track_data.channels[chan_idx_a1]
 
   -- remember addr (we'll be editing it)
@@ -19,7 +19,7 @@ function interpret_pattern(chan_idx_a1, addr)
   end
 
   -- parse opcodes
-  local acc = "PATTERN (rom 0x" .. HEX(addr - 1, 4) .. ")\n"
+  local acc = "PATTERN (rom 0x" .. HEX(addr - 1, 4) .. "+" .. HX(offset) .. ")\n"
   local done = false
   while not done do
     local s = ""
@@ -160,7 +160,7 @@ function interpret_pattern(chan_idx_a1, addr)
     end
 
     -- read instrument (optional)
-    if read_instr ~= nil and read_instr ~= 0 then
+    if read_instr ~= nil then
       s = s .. " instr:" .. HEX(read_instr)
       if channel_data[read_instr + 1] then
         s = s .. ' "' .. channel_data[read_instr + 1].name .. '"'
@@ -180,9 +180,14 @@ function interpret_pattern(chan_idx_a1, addr)
 
     -- append bytes for this opcode
     if start_addr - base_addr == loop_idx then
-      acc = acc .. "@ "
+      acc = acc .. "@"
     else
-      acc = acc .. "  "
+      acc = acc .. " "
+    end
+    if start_addr - base_addr == offset then
+      acc = acc .. ">"
+    else
+      acc = acc .. " "
     end
     for a = start_addr,addr - 1 do
       acc = acc .. HX(rom.readbyteunsigned(a)) .. " "

@@ -350,7 +350,7 @@ nse_exec_groove:
     txa
     jsr nse_nextMacroByte_noloop
     sta wNSE_genVar0
-    ldx wChannelIdx_a1
+    lda wChannelIdx_a1
 
     jsr nse_nextMacroByte_noloop
 
@@ -450,10 +450,10 @@ nse_exec_readInstrWait:
 
 @setInstr:
     ; Y <- 2 * high nibble (i.e., 2 * new instrument)
-    ; OPTIMIZE: use special  AND-SHIFT op
-    and #$F0
+    alr $F0
     ; OPTIMIZE: compare with cached instrument value?
-    shift -3
+    shift -2
+@setInstrTAY: ; used by lua debugger
     tay
 
     ; if portamento enabled, we have to cache portamento value
@@ -502,15 +502,27 @@ nse_exec_readInstrWait:
     ASSERT assert_instr_nonzerotable
     
     ; wSoundBankTempAddr1 <- wInstrAddr[high nibble]
+    ; (Y is 2 * instrument-idx)
     lda (wSoundBankTempAddr2), Y
     sta wSoundBankTempAddr1
     iny
     lda (wSoundBankTempAddr2), Y
     sta wSoundBankTempAddr1+1
 
+    .macro assert_instr_nsebank
+        ; instrument must be in range $8000-$9fff
+        lda wSoundBankTempAddr1+1
+        cmp #$A0
+        fail_if bcs
+        cmp #$80
+        fail_if bcc
+    .endm
+    ASSERT assert_instr_nsebank
+
     ; X <- (channel base - wMacro_start)
     ; wNSE_genVar1 <- (channel end - wMacro_start)
     ; Y <- 0
+@setInstr_SetMacros_InitLoop:
     ldy wChannelIdx_a1
     lda channelMacroEndAddrTable-1.w, y
     sta wNSE_genVar1
@@ -519,20 +531,35 @@ nse_exec_readInstrWait:
 
     ; initialize macros to instrument defaults
     ; loop(channel macro data)
--   ; (macro.lo <- instrTable[y++]
+@setInstr_SetMacros_LoopTop:
+    ; (macro.lo <- instrTable[y++]
     lda (wSoundBankTempAddr1), Y
-    lda #$0
     sta wMacro_start.w, x
     iny
     inx
 
     ; (macro.hi <- instrTable[y++]
     lda (wSoundBankTempAddr1), Y
-    lda #$0
-    beq @macro_zero
+    beq @setInstr_SetMacros_MacroZero
     sta wMacro_start.w, x
     iny
     inx
+
+    .macro assert_macro_nsebank_or_null
+        ; macro address must either be in range $8000-$9fff or else null.
+
+        ; null
+        lda wMacro_start.w-1, x
+        ora wMacro_start.w-2, x
+        pass_if beq
+
+        lda wMacro_start.w-1, x
+        cmp #$A0
+        fail_if bcs
+        cmp #$80
+        fail_if bcc
+    .endm
+    ASSERT assert_macro_nsebank_or_null
 
     ; macro.offset <- 1 (after loop index byte)
     ; however, we skip this if macro hi is not set,
@@ -542,11 +569,12 @@ nse_exec_readInstrWait:
     sta wMacro_start.w, x
     inx
 
-@setmacros_loopnext:
+@setInstr_SetMacros_LoopNext:
     cpx wNSE_genVar1
-    bmi -
+    bmi @setInstr_SetMacros_LoopTop
     ; (end of loop)
 
+@setInstr_SetMacros_LoopEnd:
     ; restore portamento value if needed
     ldx wChannelIdx_a1
     lda wMusChannel_portrate-1.w, x
@@ -568,7 +596,8 @@ nse_exec_readInstrWait:
     ; assumes x = channel idx + 1
     jmp nse_execSetWaitFromLowNibbleGV2
 
-@macro_zero:
+@setInstr_SetMacros_MacroZero:
     iny
     inx
-    bne @setmacros_loopnext ; guaranteed
+    inx
+    bne @setInstr_SetMacros_LoopNext ; guaranteed
