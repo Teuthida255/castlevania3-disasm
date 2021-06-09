@@ -252,6 +252,9 @@ register_watchpoints()
 -- assertions
 register_asserts()
 
+-- verify rom
+verify_volume_table()
+
 while (true) do
     print_fceux_reset()
     handle_input()

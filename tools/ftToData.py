@@ -776,7 +776,9 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
 
         if type in ["duty", "vol"]:
             for i, b in enumerate(ft_data):
-                nibble = (b << 2) | 3
+                nibble = b
+                if type == "duty":
+                    nibble = (b << 2) | 3
                 if i % 2 == 0:
                     # even frame -- nibble lo
                     data += [nibble & 0xf]

@@ -16,6 +16,18 @@ function luasrt.Y0(addr)
   return rY() == 0
 end
 
+-- assert X equals whatever is stored in wChannelIdx_a1/wChannelIdx
+function luasrt.X_IS_CHAN_IDX()
+  local chan_idx = ram_read_byte_by_name("wChannelIdx_a1")
+  return rX() == chan_idx
+end
+
+-- assert Y equals whatever is stored in wChannelIdx_a1/wChannelIdx
+function luasrt.Y_IS_CHAN_IDX()
+  local chan_idx = ram_read_byte_by_name("wChannelIdx_a1")
+  return rY() == chan_idx
+end
+
 function register_asserts()
   for symbol, addr in pairs(g_symbols_ram) do
     local found, end_idx = symbol:find("_LUASRT_")

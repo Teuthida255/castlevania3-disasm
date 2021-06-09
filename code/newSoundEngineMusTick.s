@@ -169,7 +169,7 @@ nse_musTickSq_volzero:
     
     ; GV0 <- wMusChannel_BaseVolume
     lda wMusChannel_BaseVolume, y
-    and #$0F ; remove alt (echo) volume
+    and #$0F ; mask out alt (echo) volume
     bpl nse_musTickSq@before_setDutyCycle
 
     ASSERT autofail
@@ -185,36 +185,61 @@ nse_musTickSq:
 
 @setVolume:
     ; ------------------------------------------
-    ; volume
+    ; VOLUME
+    ; 
+    ; Channels: sq1, sq2, noise, sq3, sq4
+    ;
+    ; Volume macro contains two-nibble pairs.
+    ; We read high or low nibble depending on wMusChannel_ReadNibble,
+    ; (and toggle wMusChannel_ReadNibble's bit for this channel)
+    ; (note: wMusChannel_ReadNibble is used for other macros as well, so we have
+    ; to update it even if volume macro is null.)
     ; ------------------------------------------
+
+    LUA_ASSERT X_IS_CHAN_IDX
+
+    ; X, GV5 <- channel's volume macro offset from macro base +2
     lda channelMacroVolAddrTable_a2.w, x
-    sta wNSE_genVar5; store in gv5 so duty cycle can reuse this later
+    sta wNSE_genVar5; store &[volume macro] in gv5 so duty cycle can reuse this later
     tax
+
+    ; GV0 <- macro offset / counter
     lda wMacro_start.w, x
-    sta wNSE_genVar0 ; store current macro offset
-    dex
-    dex
-    lda wMacro_start+1.w, x
+    sta wNSE_genVar0
+
+    ; if volume macro is null (hi addr == 00) then `goto nse_musTickSq_volzero`
+    lda wMacro_start-1.w, x
     beq nse_musTickSq_volzero ; special handling for instruments without volume macro.
+
+    ; GV1 <- next volume macro byte
+    dex
+    dex
     nse_nextMacroByte_inline_precalc_abaseaddr
     sta wNSE_genVar1 ; store macro volume multiplier
+    inx
+    inx
 
-    ; restore previous macro offset if nibble is even
+    ; restore previous macro offset if nibble is even:
+    ; Y <- (1 << channel idx)
+    ; branch if ((1 << wChannelIdx) & wMusChannel_ReadNibble != 0)
     ldy wChannelIdx
     lda bitIndexTable, y
     tay
-    inx
-    inx
-    ; start condition: nibble is 0 on even frames.
     and wMusChannel_ReadNibble.w
     bne +
-    sta nibbleParity ; on even frames, nibbleParity is 0.
-    lda wNSE_genVar0 ; restore previous macro offset (on even frames)
-    sta wMacro_start.w, x
-    ; shift to upper nibble if loading even macro
-    lda wNSE_genVar1
-    shift 4
-    sta wNSE_genVar1
+
+        sta nibbleParity ; on even frames, nibbleParity is 0.
+
+        ; macro counter <- GV0
+        ; (restore previous macro offset (on even frames))
+        lda wNSE_genVar0 
+        sta wMacro_start.w, x
+        
+        ; GV1 <<= 4
+        ; shift to upper nibble if loading even macro
+        lda wNSE_genVar1
+        shift 4
+        sta wNSE_genVar1
 
 +   ; wMusChannel_ReadNibble ^= (1 << channel idx)
     tya
@@ -222,24 +247,28 @@ nse_musTickSq:
     sta wMusChannel_ReadNibble.w
 
     ; crop out lower portion of macro's nibble
+    ; GV0 &= $f0
     lda wNSE_genVar1
     and #$f0
     sta wNSE_genVar1
 
+@multiplyMacroAndBaseVolume:
     ; load base volume, select base volume nibble.
+    ; Y <- channel idx
+    ; A <- base volume & $0f
+    ldy wChannelIdx
     lda wMusChannel_BaseVolume, y
     and #$0f
 
-    ; multiply tmp volume with base volume.
-    ; (use echo volume if "echo flag" is set)
+    ; multiply tmp volume with base volume
+    ; using a lookup table.
     eor wNSE_genVar1 ; ora, eor -- it doesn't matter
     tax
     lda volumeTable.w, x
-    ldy wChannelIdx_a1
 
 @before_setDutyCycle:
-    ; skip duty cycle for noise channel (just push volume)
     ; NOISE ------------------------
+    ; skip duty cycle for noise channel (just push volume)
     cpy #NSE_NOISE
     beq @PHA_and_ora0011_then_setFrequency
     ; NOISE end --------------------

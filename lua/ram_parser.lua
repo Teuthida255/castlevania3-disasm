@@ -223,7 +223,11 @@ end
 function macro_to_string_brief(macroAddr, noloop)
   local addr = memory.readwordunsigned(macroAddr)
   local offset = memory.readbyteunsigned(macroAddr + 2)
-  local loop = memory.readbyteunsigned(addr)
+  if addr == 0 then
+    return string.format("NULL+%02x", offset)
+  end
+  local rom_addr = get_rom_address_from_ram_addr(addr, NSE_BANK)
+  local loop = rom.readbyteunsigned(rom_addr)
   local loopstr = ""
   if noloop then
       -- indicate loop point is 0, and that's special
@@ -239,11 +243,7 @@ function macro_to_string_brief(macroAddr, noloop)
           loopstr = " (--)"
       end
   end
-  if addr == 0 then
-      return string.format("NULL+%02x%s", offset, loopstr)
-  else
-      return string.format("%04x+%02x%s", addr, offset, loopstr)
-  end
+  return string.format("%04x+%02x%s", addr, offset, loopstr)
 end
 
 function macro_tickertape(macroAddr, length, noloop)
@@ -272,6 +272,8 @@ function macro_tickertape(macroAddr, length, noloop)
               k = "@["
           elseif i == offset + 1 then
               k = "]@"
+          else
+            k = " @"
           end
       else
           if i == 0 and not noloop then
@@ -444,7 +446,7 @@ function interpret_channel_instrument(chan_idx_a1)
       s = s .. "Instr " .. HX(instr_addr, 4) .. "\n"
       for macro_idx, macro in ipairs(CHANNEL_MACROS[chan_idx_a1]) do
         if macro ~= "Vib" then -- vibrato is not part of the instrument definition
-          local macro_addr = rom.readwordunsigned(instr_addr_rom + 2 * macro_idx)
+          local macro_addr = rom.readwordunsigned(instr_addr_rom + 2 * (macro_idx - 1))
           s = s .. macro:sub(1, 1) .. ":" .. HX(macro_addr, 4) .. " "
         end
       end
@@ -455,4 +457,15 @@ function interpret_channel_instrument(chan_idx_a1)
     s = s .. "\n"
   end
   return s
+end
+
+function verify_volume_table()
+  local rom_addr = get_rom_address_of_symbol("volumeTable")
+  assert(rom.readbyteunsigned(rom_addr) == 0)
+  assert(rom.readbyteunsigned(rom_addr + 0x10) == 0)
+  assert(rom.readbyteunsigned(rom_addr + 0x11) == 1)
+  assert(rom.readbyteunsigned(rom_addr + 0x40) == 0)
+  assert(rom.readbyteunsigned(rom_addr + 0xfe) == 0xe)
+  assert(rom.readbyteunsigned(rom_addr + 0xef) == 0xe)
+  assert(rom.readbyteunsigned(rom_addr + 0xff) == 0xf)
 end
