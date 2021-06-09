@@ -74,7 +74,7 @@
         dsb NUM_CHANS
     
     ; signed value centred at 80, indicating detune for channel
-    ; DPCM: (available for use)
+    ; DPCM: stores "apply" mask
     ; noise: stores sfx mask
     wMusChannel_BaseDetune:
         dsb NUM_CHANS
@@ -319,4 +319,8 @@
 .define wSFXChannelActive wMusChannel_BaseDetune+NSE_NOISE
 
 .define wNSE_genVar8w wMusChannel_BasePitch+NSE_DPCM
-.define wNSE_genVar9w wMusChannel_BasePitch+NSE_DPCM
+
+; bitfield per-channel. "Should change be applied to Hi byte?"
+; (square channels only)
+; we record this so as to prevent resetting the timer on write at 60hz without need.
+.define wMix_CacheReg_ApplyChange wMusChannel_BaseDetune+NSE_DPCM

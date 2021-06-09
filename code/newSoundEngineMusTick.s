@@ -614,11 +614,14 @@ nse_musTickSq:
     ;   X = channel idx
     ;   (-C)
 
+    ; TODO -- assert channel idx is not noise nor dpcm
+
     ; Y <- cache register offset
-    stx wNSE_genVar1
+    ; (Y <- X * 3)
+    LUA_ASSERT X_IS_CHAN_IDX
     txa
     asl
-    adc wNSE_genVar1
+    adc wChannelIdx
     tay
 
     ; store volume in cached register
@@ -629,10 +632,28 @@ nse_musTickSq:
     lda wSoundFrequency
     sta wMix_CacheReg_start+1.w, y
     lda wSoundFrequency+1
-    ; set length counter load to non-zero value
+
+    ; (set length counter load to non-zero value -- paranoia)
     ora #$80
+
+    ; compare with existing value
+    LUA_ASSERT X_IS_CHAN_IDX
+    cmp wMix_CacheReg_start+2.w, y
+    bne @writeRegisterChange
+
+; record whether the hi register has changed, then rts.
+@writeRegisterNoChange:
+    lda bitIndexTable.w, x
+    eor #$ff
+    and wMix_CacheReg_ApplyChange.w
+    sta wMix_CacheReg_ApplyChange.w
+    rts
+
+@writeRegisterChange:
     sta wMix_CacheReg_start+2.w, y
-@writeRegistersRTS:
+    lda bitIndexTable.w, x
+    ora wMix_CacheReg_ApplyChange.w
+    sta wMix_CacheReg_ApplyChange.w
     rts
 
 @NoiseArpEpilogue:
@@ -640,7 +661,7 @@ nse_musTickSq:
 
     ; early-out if sfx has priority
     ldx wNSE_current_channel_is_masked
-    bne @pla_then_writeRegistersRTS
+    bne @pla_then_rts
 
     ; gv0 <- absolute pitch modulo $F
     and #$F
@@ -660,7 +681,7 @@ nse_musTickSq:
     ora #%00110000
     sta wMix_CacheReg_Noise_Vol.w
     bit_skip_1
-@pla_then_writeRegistersRTS:
+@pla_then_rts:
     pla
     rts
 
