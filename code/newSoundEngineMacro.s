@@ -14,6 +14,11 @@
             lda wMacro_start.w, X
         .endif
         sta wSoundBankTempAddr2
+        .if NARGS == 1
+            ; carry is used to indicate if we've
+            ; already set the previous counter value.
+            sec
+        .endif
     @@@_macro_loop\@:
         ; Y <- counter++
         .ifdef MACRO_BYTE_ABSOLUTE
@@ -24,8 +29,10 @@
         .endif
 
         .if NARGS == 1
-                sty \1
-            .endif
+            bcc @@@_macro_skip_store_prev_count\@
+            sty \1
+        @@@_macro_skip_store_prev_count\@:
+        .endif
 
         ; ^ (counter++)
         .ifdef MACRO_BYTE_ABSOLUTE
@@ -36,11 +43,18 @@
 
         ; A <- macro[Y]
         lda (wSoundBankTempAddr2), Y
+        LUA_ASSERT A_OR_Y_NONZERO
         .ifndef MACRO_NO_LOOP
+            ; if not zero, we're done.
             bne @@@_macro_end\@
 
-            ; only if macro lookup fails
-            ; A = 0
+            .if NARGS == 1
+                ; carry is used to indicate if we've
+                ; already set the previous counter value.
+                clc
+            .endif
+
+            ; otherwise... (A == 0)
             .ifndef MACRO_LOOP_ZERO
                 tay
                 lda (wSoundBankTempAddr2), Y
@@ -49,21 +63,32 @@
                 .else
                     sta wMacro_start+2.w, X
                 .endif
+                LUA_ASSERT BNE
                 bne @@@_macro_loop\@ ; guaranteed, since no macro loops to position 0.
             .else
+                ; set macro counter to 0.
                 .ifdef MACRO_BYTE_ABSOLUTE
                     sta wMacro_start+MACRO_BYTE_ABSOLUTE+2.w
                 .else
                     sta wMacro_start+2.w, X
                 .endif
+
+                ; guaranteed (since A == 0)
+                LUA_ASSERT BEQ
                 beq @@@_macro_loop\@
                 .undef MACRO_LOOP_ZERO
             .endif
         .else
             .undef MACRO_NO_LOOP
+            
+            .ifdef MACRO_TRAMPOLINE_SPACE
+                ; jump past trampoline space
+                jmp @@@_macro_end\@
+            .endif
         .endif
 
     .ifdef MACRO_TRAMPOLINE_SPACE
+        LUA_ASSERT FALSE
         MACRO_TRAMPOLINE_\@
         .undef MACRO_TRAMPOLINE_SPACE
     .endif

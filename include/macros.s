@@ -215,8 +215,13 @@
 .endm
 
 .macro LUA_ASSERT
-    ; lua can read these.
+    ; lua can read these,
+    ; but only if label is unique.
+    ; (i.e., no other label can be in this space.
+    ; thus, we need nops.)
+    nop
     @@@\@_LUASRT_\1:
+    nop
 .endm
 
 .macro ASSERT

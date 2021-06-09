@@ -19,6 +19,9 @@ NSE_DPCM = 4
 NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
 
+# add/remove these for debugging
+enabled_macros = ["vol", "duty"]
+
 # debug symbol code to help lua debugging
 
 channel_macros = [
@@ -764,27 +767,17 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
         # assert loop point and length aligns to packing
         if has_loop:
             # loop point is allowed to be arbitrary
-            assert ft_loop % packing == 0
-            assert len(ft_data) % packing == 0
-        else:
-            # repeat final value if no loop point
-            while len(ft_data) % packing != 0:
-                ft_data.append(ft_data[-1])
-                
-        # ft data now aligns to packing
-        assert len(ft_data) % packing == 0
+            if ft_loop % packing != 0:
+                print(f"WARNING: macro loop point not aligned to packing (x{packing})")
+            if len(ft_data) % packing != 0:
+                print(f"WARNING: length of macro not aligned to packing (x{packing})")
 
         if type in ["duty", "vol"]:
             for i, b in enumerate(ft_data):
                 nibble = b
                 if type == "duty":
                     nibble = (b << 2) | 3
-                if i % 2 == 0:
-                    # even frame -- nibble lo
-                    data += [nibble & 0xf]
-                else:
-                    # odd frame -- nibble hi
-                    data[-1] |= (nibble & 0xf) << 4
+                data += [nibble & 0xf]
         elif type in ["arp", "arpmode"]:
             arpset = ["absolute", "fixed", "relative", "scheme"][ft_macro["setting"]]
             chunkp["align"] = 2
@@ -867,16 +860,41 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
         assert 0 not in data, "macros cannot contain 0" + error_context(type= type, label= label, **kwargs.get("context", {}))
         
         # add loop point to release
-        loop = 1
+        loop = 0
+        loop_packing_offset = 0
         if ft_loop < 0:
             # loop to end
-            loop = len(data)
-        else:
-            loop = loop // packing
-        data = [loop] + data
-        assert len(data) > loop
+            loop = len(data) - 1
+        
+        assert len(data) >= 0, "empty macro?!"
+        assert (loop >= 0)
+        assert len(data) > loop, "loop point overruns macro data!"
 
-        # add release macro ptr
+        # loop the looping region if necessary to fix macro packing
+        entries_added = 0
+        while len(data) % packing != 0 or loop % packing != 0:
+            if len(data) % packing != 0 and (len(data) - loop) % packing == 0:
+                assert False, "loop region cannot be repeated to fix macro alignment; macro length or loop point needs to be adjusted."
+            
+            append = data[loop:]
+            data = data + append
+            entries_added += len(append)
+            if loop % packing != 0:
+                loop += len(append)
+
+        bytes_added = (entries_added + packing - 1) // packing
+        if bytes_added >= 2:
+            print(f"WARNING: {bytes_added} bytes were appended to the macro in order to fix macro alignment")
+
+
+        # if packing >= 2, pack array (into nibbles or bit-pairs or bits, etc.)
+        data = pack_array(data, packing)
+
+        # prepend loop point.
+        data = [(loop // packing) + 1] + data
+
+        # prepend release macro ptr
+        # (chunkp["offset"] set to 2 to account for this.)
         if has_release and not is_release:
             data = [chunkptr(*label, "release")] + data
         else:
@@ -926,8 +944,7 @@ def make_macro_chunks():
                     ft_instr = ft["instruments"][ft_instr_idx]
                     mtidx = ft_macro_type_idx[macro_type]
                     ft_macro_idx = ft_instr["macros"][mtidx]
-                    # TEMP DEBUG: 'macro_type != "vol"'
-                    if ft_macro_idx < 0 or (mtidx, ft_macro_idx) not in ft["macros"] or macro_type != "vol":
+                    if ft_macro_idx < 0 or (mtidx, ft_macro_idx) not in ft["macros"] or macro_type not in enabled_macros:
                         # no macro set.
                         chunks.append(
                             nullchunk(label)

@@ -23,6 +23,16 @@ function rY()
   return memory.getregister("y")
 end
 
+-- gets status register
+function rStatus()
+  return memory.getregister("p")
+end
+
+-- gets Zero flag set
+function rZ()
+  return bit.band(rStatus(), 0x2) ~= 0
+end
+
 -- returns bankswitch register governing given ram address
 -- (always in range 0x5113 - 0x5117 inclusive)
 function get_mmc5_bankswitch_reg(addr)

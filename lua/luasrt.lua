@@ -1,6 +1,11 @@
 -- assertions that the lua debugger can verify while the game is running
 luasrt = {}
 
+-- assert false
+function luasrt.FALSE(addr)
+  return false
+end
+
 -- assert register A is 0
 function luasrt.A0(addr)
   return rA() == 0
@@ -14,6 +19,21 @@ end
 -- assert register Y is 0
 function luasrt.Y0(addr)
   return rY() == 0
+end
+
+-- assert at least of of register A and register Y is not 0
+function luasrt.A_OR_Y_NONZERO(addr)
+  return rY() ~= 0 or rA() ~= 0
+end
+
+-- assert Z flag set
+function luasrt.BEQ(addr)
+  return rZ()
+end
+
+-- assert Z flag clear
+function luasrt.BNE(addr)
+  return not rZ()
 end
 
 -- assert X equals whatever is stored in wChannelIdx_a1/wChannelIdx

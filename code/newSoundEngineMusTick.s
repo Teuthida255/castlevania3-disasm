@@ -150,6 +150,7 @@ nse_musTickTri:
 
 @epilogue:
     ldy #NSE_TRI ; this is wChannelIdx
+    LUA_ASSERT Y_IS_CHAN_IDX
     ; read arp and detune macros as normal.
     jmp nse_musTickSq@PHA_then_setFrequency
 
@@ -194,6 +195,7 @@ nse_musTickSq:
     ; (and toggle wMusChannel_ReadNibble's bit for this channel)
     ; (note: wMusChannel_ReadNibble is used for other macros as well, so we have
     ; to update it even if volume macro is null.)
+    ;
     ; ------------------------------------------
 
     LUA_ASSERT X_IS_CHAN_IDX
@@ -267,6 +269,7 @@ nse_musTickSq:
     lda volumeTable.w, x
 
 @before_setDutyCycle:
+    LUA_ASSERT Y_IS_CHAN_IDX
     ; NOISE ------------------------
     ; skip duty cycle for noise channel (just push volume)
     cpy #NSE_NOISE
@@ -276,18 +279,24 @@ nse_musTickSq:
     sta wNSE_genVar0 ; GV0 <- volume
 
 @setDutyCycle:
-    ; A <- duty cycle macro value, wNSE_genVar7 <- previous duty cycle offset value
+    LUA_ASSERT Y_IS_CHAN_IDX
+
+    ; X <- duty cycle macro offset - 1
+    ; A <- duty cycle macro hi addr
     ldx wNSE_genVar5
-    lda wMacro_start+1.w, x
-    beq @@@dutcycle_zero
+    lda wMacro_start+2.w, x
+    beq @@@dutycycle_zero
+
+    ; X <- duty cycle macro offset
+    inx
 
     .macro MACRO_TRAMPOLINE_6
-        @@@dutcycle_zero:
+        @@@dutycycle_zero:
             ; set duty cycle from macro offset byte,
             ; which is reused to store duty cycle instead.
-            lda wMacro_start+2.w, x
+            lda wMacro_start+3.w, x
 
-            ; ASSERT assert_y_chan_idx
+            LUA_ASSERT Y_IS_CHAN_IDX
             ASSERT assert_only_hi_nibble
 
             ; add important register flags
@@ -299,6 +308,7 @@ nse_musTickSq:
     .endm
     .define MACRO_TRAMPOLINE_SPACE
 
+    ; A <- duty cycle macro value, wNSE_genVar7 <- previous duty cycle offset value
     nse_nextMacroByte_inline_precalc_abaseaddr wNSE_genVar7
     ldy wChannelIdx ; restore Y after above macro call
     ldx nibbleParity
@@ -307,14 +317,14 @@ nse_musTickSq:
         shift 4
         lda wNSE_genVar7
         ldx wNSE_genVar5
-        sta wMacro_start+2.w, x
+        sta wMacro_start+3.w, x
     + ; TODO: 4x-packed duty cycle values?
     ; assumption: macro bytes 4 and 5 are 1.
     and #$F0
 @endSetDutyCycle:
     ora wNSE_genVar0 ; OR with volume
 
-    ASSERT assert_y_chan_idx
+    LUA_ASSERT Y_IS_CHAN_IDX
 
 @PHA_and_ora0011_then_setFrequency:
     ; enable certain important bits in volume channel (for noise and square)
@@ -334,7 +344,7 @@ nse_musTickSq:
     ; get arpeggio (pitch offset)
     ; precondition: y = channel idx
 
-    ASSERT assert_y_chan_idx
+    LUA_ASSERT Y_IS_CHAN_IDX
 
     ; x <- offset of arp address
     ldx channelMacroArpAddrTable.w, y

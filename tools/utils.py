@@ -1,6 +1,7 @@
 import sys
 import string
 import re
+import math
 
 with open('original/OR.bin', 'rb') as f:
     prgData = f.read()
@@ -97,6 +98,11 @@ def HX(arg, digits=1):
         c = '0' + c
     return c
 
+# returns true if byte contains two identical nibbles,
+# e.g. 00, 11, 33, or ff.
+def byte_is_duplicate_nibble(b):
+    return (b & 0x0f) == ((b >> 4) & 0x0f)
+
 if __name__ == '__main__':
     getOutstandingLines()
 
@@ -151,3 +157,20 @@ def splitq (seq, sep=None, pairs=("()", "[]", "{}"), quote='"\'') :
         if seq[start:]:
             r.append(seq[start:])
     return r
+
+def pack_array(arr, packing):
+    if packing <= 1:
+        return arr
+    bitwidth = math.floor(8 / packing)
+    valcap = (1 << (bitwidth + 1))
+    a = []
+    for i, v in enumerate(arr):
+        assert (v >= 0 and v == math.floor(v), "cannot pack non-whole-number value.")
+        assert(v < valcap, f"cannot pack value {HX(v)} which exceeds bitwidth {bitwidth} for packing x{packing}")
+
+        if i % packing == 0:
+            a += [0]
+        
+        a[-1] |= (v << (bitwidth * (i % packing)))
+    
+    return a
