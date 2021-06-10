@@ -1,3 +1,5 @@
+LUA_MARKER NSE_MUSTICK_BEGIN
+
 .macro autofail
     fail_if bpl
     fail_if bmi
@@ -358,13 +360,19 @@ nse_musTickSq:
 +
 
     ; A <- next arpeggio macro value
-    lda wMacro_start+1.w, x ; skip if macro is zero.
-    LUA_ASSERT A0
+    lda wMacro_start+1.w, x ; skip if macro is null.
     beq +
 
     ; if address is odd, this is a Fixed macro, not Arpeggio macro.
     lsr
-    bcs @fixedMacro
+    .ifdef NSE_NO_FIXED_MACROS
+        bcc ++ ; DEBUG -- ignore 'fixed' macros.
+        lda #$0
+        jmp +
+     ++ 
+    .else
+        bcs @fixedMacro
+    .endif
     rol
     nse_nextMacroByte_inline_precalc_abaseaddr
 
@@ -372,6 +380,8 @@ nse_musTickSq:
     and #%00111111   ; crop out ArpXY values
     .define arpValue wNSE_genVar0
     sta arpValue
+    
+    ldy wChannelIdx
 
     ; apply ArpXY to arpeggio offset
 @ArpXYAdjust:
@@ -383,6 +393,7 @@ nse_musTickSq:
     and #$0f ; get just the X nibble
     clc
     adc arpValue
+LUA_ASSERT BCC
     bcc @endArpXYAdjust ; guaranteed -- arpValue is the sum of two nibbles, so it cannot exceed $ff.
 
 ; --------------
@@ -395,10 +406,12 @@ nse_musTickSq:
     ; FF means use unmodified base pitch, so this hack does that.
     sta arpValue
     sec
+LUA_ASSERT BCS
     bcs @endArpXYAdjust ; guaranteed
 
 +   tax
     dex
+LUA_ASSERT BPL
     bpl @lookupFrequencyX ; guaranteed (pitches >= 0)
 
 @ArpY_UnkX:
@@ -408,6 +421,7 @@ nse_musTickSq:
     shift -4
     clc
     adc arpValue
+LUA_ASSERT BCC
     bcc @endArpXYAdjust ; guaranteed -- as above.
 
 ; (let's just slide a trampoline into this space...)
@@ -423,11 +437,12 @@ nse_musTickSq:
 @endArpXYAdjustCLC:
     clc
 @endArpXYAdjust:
+LUA_ASSERT BCC
+LUA_ASSERT Y_IS_CHAN_IDX
     ; assumption: (-C)
     ; Y = channel idx
     ; set frequency lo
-    lda wMusChannel_BasePitch.w, y
-    adc arpValue
+    adc wMusChannel_BasePitch.w, y
 
     ; NOISE ------------------------
     ; skip detune if noise channel
@@ -535,6 +550,7 @@ nse_musTickSq:
     ; A <- <wSoundBankTempAddr2-3
     ; assumption: <wSoundBankTempAddr2 >= 3
     ; assumption (-C)
+    LUA_ASSERT BCC
     lda wSoundBankTempAddr2
     adc #$FD ; -3
     sta wSoundBankTempAddr2
@@ -549,10 +565,11 @@ nse_musTickSq:
     ; we have to decrement frequency hi because we are adding two "reverse-signed"
     ; values (i.e. values where $80 represents zero) as though they were unsigned.
     dec wSoundFrequency.w+1
-    clc
-+
++   clc
+
 
 @addDetuneAccumulator:
+LUA_ASSERT BCC
     ; (-C)
     ; add detune-accumulator to current frequency
     lda wMusChannel_DetuneAccumulator_Lo.w, x
@@ -564,6 +581,7 @@ nse_musTickSq:
     clc
 
 @addBaseDetune:
+LUA_ASSERT BCC
     ; (-C)
     ; channel base detune
     lda wMusChannel_BaseDetune.w, x
@@ -584,6 +602,7 @@ nse_musTickSq:
     ; A <- vibrato
     .define MACRO_LOOP_ZERO
     nse_nextMacroByte_inline_precalc_abaseaddr
+LUA_ASSERT BCC
     ; (-C)
     adc #$80
     bmi @negativeVibrato
@@ -612,7 +631,6 @@ nse_musTickSq:
 @writeRegisters:
     ; pre-requisites:
     ;   X = channel idx
-    ;   (-C)
 
     ; TODO -- assert channel idx is not noise nor dpcm
 
@@ -621,6 +639,7 @@ nse_musTickSq:
     LUA_ASSERT X_IS_CHAN_IDX
     txa
     asl
+LUA_ASSERT BCC
     adc wChannelIdx
     tay
 
@@ -741,10 +760,9 @@ nse_musTickSq:
 @negativePortamento:
     cmp #$FF
     bne @subtractPortamento
-    ; (-C)
-
     ; A <- negative portamento speed
-    lda #$1
+    sec
+    lda #$0
     sbc wNSE_genVar7
 
     ; ||speed|| < ||target - current||?
@@ -761,3 +779,5 @@ nse_musTickSq:
     lda wMacro_start+1, y
     adc #$FF
     jmp @_completePortament_store_hi
+
+LUA_MARKER NSE_MUSTICK_END

@@ -1,3 +1,5 @@
+LUA_MARKER NSE_COMMANDS_BEGIN
+
 .macro assert_not_noise
     lda wChannelIdx_a1
     cmp #NSE_NOISE+1
@@ -601,3 +603,5 @@ nse_exec_readInstrWait:
     inx
     inx
     bne @setInstr_SetMacros_LoopNext ; guaranteed
+
+LUA_MARKER NSE_COMMANDS_END

@@ -1,4 +1,9 @@
+import math
+
 chunkmap = {}
+
+def positive_modulo(a, b):
+    return (a - math.floor(a / b) * b)
 
 def chunk(label, data, maxlo=0xff, offset=0, **kwargs):
     if type(label) is not tuple:
@@ -103,9 +108,15 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
         chunk["bank"] = chunkassoc["bank"]
         return 0
 
-    if  addrlo > chunk["maxlo"]:
+    if addrlo > chunk["maxlo"]:
         # skip some data and leave it unused
         steps = 0x100 - addrlo
+        address += steps
+        i += steps
+
+    # ensure aligned
+    if chunk["align"] > 1:
+        steps = positive_modulo(chunk["align"] - address, chunk["align"]) + chunk["alignoff"]
         address += steps
         i += steps
 

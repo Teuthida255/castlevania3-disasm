@@ -36,6 +36,26 @@ function luasrt.BNE(addr)
   return not rZ()
 end
 
+-- assert carry flag clear
+function luasrt.BCC(addr)
+  return not rC()
+end
+
+-- assert carry flag set
+function luasrt.BCS(addr)
+  return rC()
+end
+
+-- assert N flag clear
+function luasrt.BPL(addr)
+  return not rN()
+end
+
+-- assert N flag set
+function luasrt.BMI(addr)
+  return rN()
+end
+
 -- assert X equals whatever is stored in wChannelIdx_a1/wChannelIdx
 function luasrt.X_IS_CHAN_IDX()
   local chan_idx = ram_read_byte_by_name("wChannelIdx_a1")

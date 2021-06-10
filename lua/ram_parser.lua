@@ -30,7 +30,17 @@ end
 
 -- gets Zero flag set
 function rZ()
-  return bit.band(rStatus(), 0x2) ~= 0
+  return bit.band(rStatus(), 0x02) ~= 0
+end
+
+-- gets Negative flag set
+function rN()
+  return bit.band(rStatus(), 0x80) ~= 0
+end
+
+-- gets Carry flag set
+function rC()
+  return bit.band(rStatus(), 0x01) ~= 0
 end
 
 -- returns bankswitch register governing given ram address
@@ -457,6 +467,12 @@ function interpret_channel_instrument(chan_idx_a1)
       for macro_idx, macro in ipairs(CHANNEL_MACROS[chan_idx_a1]) do
         if macro ~= "Vib" then -- vibrato is not part of the instrument definition
           local macro_addr = rom.readwordunsigned(instr_addr_rom + 2 * (macro_idx - 1))
+
+          -- Fixed macros replace Arp macros if address is odd
+          if macro_addr % 2 == 1 then
+            macro = "Fixed"
+          end
+
           s = s .. macro:sub(1, 1) .. ":" .. HX(macro_addr, 4) .. " "
         end
       end
@@ -469,6 +485,47 @@ function interpret_channel_instrument(chan_idx_a1)
   return s
 end
 
+-- sets the locations wherein the wChannelIdx/wChannelIdx_a1 is to be interpreted as:
+-- - 0-indexed (0=sq1), or
+-- - 1-indexed ("a1" / 1=sq1), or
+-- - spurious (neither)
+g_chidx_0ranges = {}
+g_chidx_1ranges = {}
+
+function range_from_names(a, b)
+  local addr_a = g_symbols_ram[a]
+  local addr_b = g_symbols_ram[b]
+  local bank = g_symbols_ram_bank[a]
+  return {addr_a, addr_b, bank}
+end
+
+function initialize_channel_idx_ranges()
+  g_chidx_0ranges = {
+    range_from_names("NSE_MUSTICK_BEGIN","NSE_MUSTICK_END")
+  }
+  g_chidx_1ranges = {
+    range_from_names("NSE_COMMANDS_BEGIN","NSE_COMMANDS_END")
+  }
+end
+
+-- returns 0, 1, or nil (spurious)
+function get_chidx_indexing_mode_from_addr(addr)
+  local bank = get_bank_at_addr(addr)
+  for _, range in g_chidx_0ranges do
+    if bank == range[3] and addr >= range[1] and addr < range[2] then
+      return 0
+    end
+  end
+
+  for _, range in g_chidx_1ranges do
+    if bank == range[3] and addr >= range[1] and addr < range[2] then
+      return 1
+    end
+  end
+
+  return nil
+end
+
 function verify_volume_table()
   local rom_addr = get_rom_address_of_symbol("volumeTable")
   assert(rom.readbyteunsigned(rom_addr) == 0)
@@ -478,4 +535,18 @@ function verify_volume_table()
   assert(rom.readbyteunsigned(rom_addr + 0xfe) == 0xe)
   assert(rom.readbyteunsigned(rom_addr + 0xef) == 0xe)
   assert(rom.readbyteunsigned(rom_addr + 0xff) == 0xf)
+end
+
+-- reads a byte from the given macro at the given position (including loop byte if applicable)
+-- provide name of macro (e.g. "wMacro@Sq1_Vol")
+-- (if position is not provided, read from current counter position instead.)
+--
+-- if 'allow_zero' is true, then zero will not be interpreted as the loop marker.
+--
+-- returns value and new position in macro.
+function read_byte_from_macro(name, position, allow_zero)
+  local macro_addr = ram_read_word_by_name(name)
+  local macro_count = ram_read_byte_by_name(name, 2)
+  local count = tern(position == nil, macro_count, position)
+  
 end

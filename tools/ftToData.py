@@ -20,7 +20,7 @@ NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
 
 # add/remove these for debugging
-enabled_macros = ["vol", "duty"]
+enabled_macros = ["vol", "duty", "arp"]
 
 # debug symbol code to help lua debugging
 
@@ -951,12 +951,6 @@ def make_macro_chunks():
                         )
                         continue
                     ft_macro = ft["macros"][(mtidx, ft_macro_idx)]
-                    if macro_type not in ["duty", "vol", "arp", "arpmode"]:
-                        # dummy out chunks for now
-                        chunks.append(
-                            nullchunk(label)
-                        )
-                        continue
                     # add chunks
                     if macro_type == "arpmode":
                         ft_mode_type_idx = 4

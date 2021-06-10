@@ -208,6 +208,11 @@ function display()
                 local chan_macro_addr = g_symbols_ram[chan_macro_symbol]
                 if chan_macro_addr ~= nil then -- paranoia
                     local noloop = chan_macro_name == "Vib"
+
+                    -- Fixed macros are Arp macros at odd addresses
+                    if chan_macro_name == "Arp" and (chan_macro_addr % 2 == 1) then
+                        chan_macro_name = "Fixed"
+                    end
                     print_fceux("   " .. chan_macro_name .. ": " .. macro_to_string_brief(chan_macro_addr, noloop), onscreen)
                     print_fceux("   " .. macro_tickertape(chan_macro_addr, 9, noloop), onscreen)
                 end
@@ -245,6 +250,9 @@ function on_save_state()
     g_print_emu_only = false
 end
 savestate.registersave(on_save_state)
+
+-- code regions for interpreting channel idx
+initialize_channel_idx_ranges()
 
 -- mmc5 mapper watch
 register_watchpoints()
