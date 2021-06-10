@@ -230,7 +230,7 @@ nse_musTickSq:
     lda bitIndexTable, y
     tay
     and wMusChannel_ReadNibble.w
-    bne +
+    bne + ; (if parity bit is set, do not shift.)
 
         sta nibbleParity ; on even frames, nibbleParity is 0.
 

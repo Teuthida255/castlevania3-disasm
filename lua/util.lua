@@ -68,3 +68,7 @@ function isModuleAvailable(name)
     return false
   end
 end
+
+function string.ends_with(str, ending)
+  return ending == "" or str:sub(-#ending) == ending
+end

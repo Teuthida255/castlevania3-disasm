@@ -777,6 +777,8 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                 nibble = b
                 if type == "duty":
                     nibble = (b << 2) | 3
+                if type == "vol":
+                    assert nibble != 0, "volume macro cannot contain 0."
                 data += [nibble & 0xf]
         elif type in ["arp", "arpmode"]:
             arpset = ["absolute", "fixed", "relative", "scheme"][ft_macro["setting"]]

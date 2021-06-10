@@ -581,6 +581,7 @@ nse_updateSound:
     bne @sfx_tick
 @no_sfx_tick:
     jsr nse_musTick
+LUA_MARKER @NSE_MUSTICK_COMPLETE
     dec wChannelIdx
     bpl -
     bmi @writeRegisters ; end of loop

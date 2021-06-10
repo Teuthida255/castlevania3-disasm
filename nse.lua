@@ -260,6 +260,8 @@ register_watchpoints()
 -- assertions
 register_asserts()
 
+VerifyTick.register_watchpoints()
+
 -- verify rom
 verify_volume_table()
 
@@ -271,7 +273,5 @@ while (true) do
         emu.frameadvance();
     end
 end
-
-
 
 

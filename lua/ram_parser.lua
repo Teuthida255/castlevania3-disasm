@@ -543,10 +543,33 @@ end
 --
 -- if 'allow_zero' is true, then zero will not be interpreted as the loop marker.
 --
+-- return nil if macro is null.
+-- 
 -- returns value and new position in macro.
 function read_byte_from_macro(name, position, allow_zero)
+  allow_zero = allow_zero or false
   local macro_addr = ram_read_word_by_name(name)
+  if bit.band(0xff00, macro_addr) == 0 then
+    return nil, nil
+  end
   local macro_count = ram_read_byte_by_name(name, 2)
   local count = tern(position == nil, macro_count, position)
-  
+  local rom_addr = get_rom_address_from_ram_addr(macro_addr, NSE_BANK)
+
+  -- TODO: detect if no loop byte.
+  local loop_enabled = not name.ends_with("_Vib")
+
+  local loop_idx = tern(loop_enabled, rom.readbyteunsigned(rom_addr), 0)
+  local value = rom.readbyteunsigned(rom_addr + count)
+  if value == 0 and not allow_zero then
+    value = rom.readbyteunsigned(rom_addr + loop_idx)
+    return value, loop_idx
+  else
+    return value, count + 1
+  end
+end
+
+-- retrieves pitch of note (in timer value)
+function pitch_lookup(n)
+  return rom_read_word_by_name("pitchFrequencies_lo", "pitchFrequencies_lo", n)
 end
