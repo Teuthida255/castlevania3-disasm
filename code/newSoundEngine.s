@@ -571,7 +571,8 @@ nse_updateSound:
 ;------------------------------------------------
 
 @mixOut:
-    ; write active mixed channel to register
+    ; write active mixed channel to back-buffer (wMix_CacheReg_*) of the hardware sound registers
+    ; the back-buffer will be copied to the actual sound registers all at once later.
     ; loop(channels)
     copy_byte_immA NUM_CHANS-1, wChannelIdx
 -   ldx wChannelIdx

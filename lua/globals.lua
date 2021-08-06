@@ -14,6 +14,15 @@ end
 
 require("symbols_data")
 
+-- for debugging convenience mostly
+CHAN_SQ1 = 0
+CHAN_SQ2 = 1
+CHAN_TRI = 2
+CHAN_NOISE = 3
+CHAN_DPCM = 4
+CHAN_SQ3 = 5
+CHAN_SQ4 = 6
+
 CHANNEL_NAMES = {"Sq1", "Sq2", "Tri", "Noise", "DPCM", "Sq3", "Sq4"}
 CHANNEL_MACROS = {
     {"Arp", "Detune", "Vol", "Duty", "Vib"},

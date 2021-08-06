@@ -843,14 +843,12 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
 
                     b &= 0x3F
                     # note that x and y are swapped from FT's format
+                    # also note that negative is swapped as well
                     if x:
                         b |= 0x80
                     if y:
                         b |= 0x40
-                    if b == 0:
-                        # replace '0' to avoid having 0 in macro
-                        negative = True
-                    if negative:
+                    if not negative:
                         b |= 0xC0
                     if mode:
                         b |= 0x20

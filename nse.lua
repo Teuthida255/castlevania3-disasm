@@ -17,6 +17,13 @@
 
 -- required for 'require' to work correctly
 package.path = "?.lua;lua/?.lua"
+if os.getenv("LUA_PATH") then
+    package.path = package.path .. ";" .. os.getenv("LUA_PATH")
+    emu.print(package.path)
+end
+if os.getenv("LUA_CPATH") then
+    package.cpath = package.cpath .. ";" .. os.getenv("LUA_PATH")
+end
 
 --------------------------------------------------------------------------------
 -- printing functions
@@ -33,6 +40,7 @@ end
 function print_fceux(s, onscreen)
     if g_print_emu_only then
         emu.print(s)
+        io.write(tostring(s) .. "\n")
         return
     end
     if onscreen or onscreen == nil then
@@ -69,8 +77,20 @@ require("luasrt")
 -- functions for parsing pharse patterns
 require("nse_opcodes")
 
+require("verify_ticks")
+
 -- this is printed to the fceux lua script window (to verify the script works)
 emu.print("starting...")
+
+-- required for debugging
+if os.getenv("NSE_DEBUG_VSCODE") then
+    emu.print("nse debug vscode")
+    local json = require 'dkjson'
+    local debuggee = require 'vscode-debuggee'
+    local startResult, breakerType = debuggee.start(json)
+    print('debuggee start ->', startResult, breakerType)
+end
+
 
 --------------------------------------------------------------------------------
 -- main routines
@@ -106,7 +126,7 @@ function display()
     print_fceux(HX(ticks_to_next_row) .. " |" .. macro_tickertape(groove_macro, 7, true), true)
 
     -- current channel
-    local channel_idx = ram_read_byte_by_name("wChannelIdx_a1")
+    local channel_idx = ram_read_byte_by_name("wChannelIdx")
     local channel_idx_str = "channel-idx: " .. tostring(channel_idx) .. "  "
     if channel_idx == 0 then
         channel_idx_str = channel_idx_str .. "z:" .. CHANNEL_NAMES[1]
@@ -266,6 +286,9 @@ VerifyTick.register_watchpoints()
 verify_volume_table()
 
 while (true) do
+    if debuggee then
+        debuggee.poll()
+    end
     print_fceux_reset()
     handle_input()
     display()

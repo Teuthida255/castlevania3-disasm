@@ -7,13 +7,33 @@ function tern(c, t, f)
   end
 end
 
+function trace(...)
+  s = ""
+  args = {...}
+  for i = 1, #args do
+    if i ~= 1 then
+      s = s .. " "
+    end
+    s = s .. tostring(args[i])
+  end
+
+  io.write(s .. "\n")
+  emu.print(s)
+end
+
 function hx(v, k)
   k = k or 2
+  if k == nil then
+    return string.rep("?", k)
+  end
   return string.format("%0" .. tostring(k) .. "x", v)
 end
 
 function HX(v, k)
   k = k or 2
+  if k == nil then
+    return string.rep("?", k)
+  end
   return string.format("%0" .. tostring(k) .. "X", v)
 end
 
@@ -25,9 +45,18 @@ function HEX(v)
   return string.format("%X", v)
 end
 
+function maskshift(x, m, shift)
+  if shift < 0 then
+    return bit.lshift(bit.band(x, m), -shift)
+  else
+    return bit.rshift(bit.band(x, m), shift)
+  end
+end
+
 -- tests
 assert(hx(11) == "0b")
 assert(HX(11) == "0B")
+assert(maskshift(0x58, 0x50, 4) == 0x05)
 
 -- https://stackoverflow.com/a/7615129
 function split(inputstr, sep)
@@ -71,4 +100,14 @@ end
 
 function string.ends_with(str, ending)
   return ending == "" or str:sub(-#ending) == ending
+end
+
+function sign(x)
+  if x == 0 then
+    return 0
+  elseif x > 0 then
+    return 1
+  else
+    return -1
+  end
 end

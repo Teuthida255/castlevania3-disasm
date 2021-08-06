@@ -105,7 +105,7 @@ function register_watchpoints()
   memory.registerwrite(0x5100, mapper_write_cb)
   memory.registerwrite(0x5113, 5, mapper_write_cb)
 
-  -- instrument set watchpoing
+  -- instrument set watchpoint
   if TRACK_CHANNEL_INSTRUMENT then
     memory.registerexec(g_symbols_ram["nse_exec_readInstrWait@setInstrTAY"], break_on_set_instr)
   end
@@ -418,9 +418,7 @@ end
 -- sets tuning from ROM
 function read_tuning()
   local timer_a4 = rom_read_word_by_name("nse_tuning_A4_lo", "nse_tuning_A4_hi")
-  emu.print(hx(timer_a4, 4))
   TUNING_A4_HZ = timer_to_hz(timer_a4)
-  emu.print(TUNING_A4_HZ)
   assert(TUNING_A4_HZ > 1) -- if hz <= 1, almost certainly this is a mistake.
 end
 
@@ -552,15 +550,17 @@ function read_byte_from_macro(name, position, allow_zero)
   if bit.band(0xff00, macro_addr) == 0 then
     return nil, nil
   end
+  
   local macro_count = ram_read_byte_by_name(name, 2)
   local count = tern(position == nil, macro_count, position)
   local rom_addr = get_rom_address_from_ram_addr(macro_addr, NSE_BANK)
 
   -- TODO: detect if no loop byte.
-  local loop_enabled = not name.ends_with("_Vib")
+  local loop_enabled = not name:ends_with("_Vib")
 
   local loop_idx = tern(loop_enabled, rom.readbyteunsigned(rom_addr), 0)
   local value = rom.readbyteunsigned(rom_addr + count)
+
   if value == 0 and not allow_zero then
     value = rom.readbyteunsigned(rom_addr + loop_idx)
     return value, loop_idx
@@ -569,7 +569,7 @@ function read_byte_from_macro(name, position, allow_zero)
   end
 end
 
--- retrieves pitch of note (in timer value)
+-- retrieves period ("frequency") of note (in timer value)
 function pitch_lookup(n)
-  return rom_read_word_by_name("pitchFrequencies_lo", "pitchFrequencies_lo", n)
+  return rom_read_word_by_name("pitchFrequencies_lo", "pitchFrequencies_hi", n)
 end

@@ -116,7 +116,7 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
 
     # ensure aligned
     if chunk["align"] > 1:
-        steps = positive_modulo(chunk["align"] - address, chunk["align"]) + chunk["alignoff"]
+        steps = positive_modulo(chunk["align"] - address, chunk["align"]) + chunk["alignoff"]        
         address += steps
         i += steps
 

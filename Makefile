@@ -12,7 +12,6 @@ ifdef ROMHACK
 		-D SOUND_ENGINE \
 		-D INSERT_SOUND \
 		-D SCREEN_SHAKE \
-		-D NSE_NO_FIXED_MACROS \
 		-D DEBUG
 endif
 

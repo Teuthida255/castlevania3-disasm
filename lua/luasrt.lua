@@ -68,6 +68,10 @@ function luasrt.Y_IS_CHAN_IDX()
   return rY() == chan_idx
 end
 
+function luasrt.Y_IS_X_TIMES_3()
+  return rY() == 3 * rX()
+end
+
 function register_asserts()
   for symbol, addr in pairs(g_symbols_ram) do
     local found, end_idx = symbol:find("_LUASRT_")
@@ -82,7 +86,7 @@ function register_asserts()
           function (addr)
             if get_bank_at_addr(addr) == bank then
               if assertion_function(addr) == false then
-                local msg = "ASSERTION FAILED: " .. assertion_name .. " at address " .. HX(bank) .. ":" .. HX(addr, 4)
+                local msg = "ASSERTION FAILED (frame " .. HX(g_frame_idx) .. "): " .. assertion_name .. " at address " .. HX(bank) .. ":" .. HX(addr, 4)
                 emu.print(msg)
                 emu.message(msg)
                 debugger.hitbreakpoint()

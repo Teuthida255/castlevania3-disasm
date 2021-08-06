@@ -223,6 +223,7 @@ nse_musTickSq:
     inx
     inx
 
+@@selectNibble:
     ; restore previous macro offset if nibble is even:
     ; Y <- (1 << channel idx)
     ; branch if ((1 << wChannelIdx) & wMusChannel_ReadNibble != 0)
@@ -250,6 +251,7 @@ nse_musTickSq:
     eor wMusChannel_ReadNibble.w
     sta wMusChannel_ReadNibble.w
 
+@@cropNibble:
     ; crop out lower portion of macro's nibble
     ; GV0 &= $f0
     lda wNSE_genVar1
@@ -269,6 +271,8 @@ nse_musTickSq:
     eor wNSE_genVar1 ; ora, eor -- it doesn't matter
     tax
     lda volumeTable.w, x
+
+    ; volume in accumulator will be or'd with duty cycle below.
 
 @before_setDutyCycle:
     LUA_ASSERT Y_IS_CHAN_IDX
@@ -312,17 +316,21 @@ nse_musTickSq:
 
     ; A <- duty cycle macro value, wNSE_genVar7 <- previous duty cycle offset value
     nse_nextMacroByte_inline_precalc_abaseaddr wNSE_genVar7
-    ldy wChannelIdx ; restore Y after above macro call
     ldx nibbleParity
     bne +
         ; even frame -- restore previous macro offset and shift up nibble.
-        shift 4
+        tay
         lda wNSE_genVar7
         ldx wNSE_genVar5
         sta wMacro_start+3.w, x
+
+        ; shift up
+        tya
+        shift 4
     + ; TODO: 4x-packed duty cycle values?
     ; assumption: macro bytes 4 and 5 are 1.
     and #$F0
+    ldy wChannelIdx ; restore Y after above macro call
 @endSetDutyCycle:
     ora wNSE_genVar0 ; OR with volume
 
@@ -359,9 +367,14 @@ nse_musTickSq:
     jmp @doPortamento
 +
 
+@readArpMacro:
     ; A <- next arpeggio macro value
-    lda wMacro_start+1.w, x ; skip if macro is null.
-    beq +
+
+    ; skip if macro is null.
+    ; (we check lo byte only, because arp macros are guaranteed
+    ;  to not start at 0x100-multiple addresses.)
+    lda wMacro_start.w, x
+    beq @clc_endArpXYAdjust
 
     ; if address is odd, this is a Fixed macro, not Arpeggio macro.
     lsr
@@ -374,9 +387,9 @@ nse_musTickSq:
         bcs @fixedMacro
     .endif
     rol
-    nse_nextMacroByte_inline_precalc_abaseaddr
+    nse_nextMacroByte_inline_precalc
 
-  + sta wNSE_genVar1 ; store result
+  + sta wNSE_genVar1 ; store arpeggio value
     and #%00111111   ; crop out ArpXY values
     .define arpValue wNSE_genVar0
     sta arpValue
@@ -396,6 +409,10 @@ nse_musTickSq:
 LUA_ASSERT BCC
     bcc @endArpXYAdjust ; guaranteed -- arpValue is the sum of two nibbles, so it cannot exceed $ff.
 
+@clc_endArpXYAdjust:
+    clc
+    bcc @endArpXYAdjust
+
 ; --------------
 ; fixed macro (~sneak this in in the middle of arpeggio, why not!~)
 ; -------------
@@ -403,9 +420,12 @@ LUA_ASSERT BCC
     rol
     nse_nextMacroByte_inline_precalc_abaseaddr
     bpl + ; assumption: the only possible negative value is FF.
-    ; FF means use unmodified base pitch, so this hack does that.
+    ; FF means use unmodified base pitch, so this hack does that
+    ; by setting the carry value.
+    ldy wChannelIdx
     sta arpValue
     sec
+LUA_ASSERT Y_IS_CHAN_IDX
 LUA_ASSERT BCS
     bcs @endArpXYAdjust ; guaranteed
 
@@ -437,9 +457,8 @@ LUA_ASSERT BCC
 @endArpXYAdjustCLC:
     clc
 @endArpXYAdjust:
-LUA_ASSERT BCC
 LUA_ASSERT Y_IS_CHAN_IDX
-    ; assumption: (-C)
+    ; assumption: (-C), unless jumper intends to add 1
     ; Y = channel idx
     ; set frequency lo
     adc wMusChannel_BasePitch.w, y
@@ -459,9 +478,12 @@ LUA_ASSERT Y_IS_CHAN_IDX
     sta wSoundFrequency+1
 
 @donePortamento:
+
 @detune:
-    ; detune
+    ; detune follows.
     clc
+
+@@@readDetuneMacro:
     ; X <- macro table offset for detune
     lda #$3
     adc wNSE_genVar5 ; macro table offset for Arp
@@ -483,7 +505,7 @@ LUA_ASSERT Y_IS_CHAN_IDX
             ldx wChannelIdx
             lda #$80
             clc
-            bne @_adcFrequencyLo ; guaranteed
+            bcc @_adcFrequencyLo ; guaranteed
 
         @@@maskedEarlyOut:
             ; this is called when the tick routine exits partway through
@@ -539,14 +561,30 @@ LUA_ASSERT Y_IS_CHAN_IDX
     adc wMusChannel_DetuneAccumulator_Hi.w, x ; (-C)
     sta wMusChannel_DetuneAccumulator_Hi.w, x
 
+    ; detune accumulator has now been updated.
+
 @sumDetune:
     ; everything that remains in this update can be skipped if sfx has priority.
     lda wNSE_current_channel_is_masked
     bne @detune@@maskedEarlyOut
 
-    ; wSoundBankTempAddr2 is macro base address; 3 bytes before it is the base detune offset.
+    ; frequency is the sum of:
+    ;   base note frequency (determined from base pitch / note, including arp) [16 unsigned]
+    ;   (1) detune macro's base detune offset [8 reverse signed]
+    ;   (2) detune accumulator [16 signed]
+    ;   (3) channel base detune [8 reverse signed]
+    ;   (4) vibrato [8 reverse signed]
+
+    ; wSoundBankTempAddr2 is detune macro base address; 3 bytes before it is the base detune offset.
     ; add base detune
     
+; ------- (1) detune macro's base detune offset [8 rev. signed] ----------------------------
+; we also take the opportunity to subtract 0x100 in order to make (1) and (3) easier
+; the first chunk of code (@applyMacroBaseDetuneOffset) may be jumped past if 
+; no detune macro is set. In this case, the accumulator is guaranteed to be 0x80
+; at @_adcFrequencyLo.
+
+@applyMacroBaseDetuneOffset:
     ; A <- <wSoundBankTempAddr2-3
     ; assumption: <wSoundBankTempAddr2 >= 3
     ; assumption (-C)
@@ -555,8 +593,12 @@ LUA_ASSERT Y_IS_CHAN_IDX
     adc #$FD ; -3
     sta wSoundBankTempAddr2
     clc
+
+    LUA_ASSERT Y0
+
     lda (wSoundBankTempAddr2), y
-@_adcFrequencyLo:
+@_adcFrequencyLo: ; <- note: jump target if no detune macro.
+    LUA_ASSERT BCC
     ; (requires C-)
     adc wSoundFrequency.w
     sta wSoundFrequency.w
@@ -564,12 +606,15 @@ LUA_ASSERT Y_IS_CHAN_IDX
 @decrementFrequencyHi:
     ; we have to decrement frequency hi because we are adding two "reverse-signed"
     ; values (i.e. values where $80 represents zero) as though they were unsigned.
+    ; Those values are (1) and (3).
     dec wSoundFrequency.w+1
 +   clc
 
+; ------- (2) detune accumulator [16 signed] ----------------------------------------
 
 @addDetuneAccumulator:
 LUA_ASSERT BCC
+LUA_ASSERT X_IS_CHAN_IDX
     ; (-C)
     ; add detune-accumulator to current frequency
     lda wMusChannel_DetuneAccumulator_Lo.w, x
@@ -580,8 +625,13 @@ LUA_ASSERT BCC
     sta wSoundFrequency+1.w
     clc
 
+; ------- (3) channel base detune [8 reverse signed] --------------------------------
+; we're already 0x80 in debt from step (1), so we can add the reverse-signed value directly
+; as though it were unsigned.
+
 @addBaseDetune:
 LUA_ASSERT BCC
+LUA_ASSERT X_IS_CHAN_IDX
     ; (-C)
     ; channel base detune
     lda wMusChannel_BaseDetune.w, x
@@ -591,15 +641,22 @@ LUA_ASSERT BCC
     inc wSoundFrequency.w+1
 +   
 
+; ------- (4) vibrato [8 reverse signed] --------------------------------------------
+
 @addVibrato:
+LUA_ASSERT X_IS_CHAN_IDX
+    ; X <- macro offset of vibrato table
+    ; clc
     lda channelMacroVibratoTable.w, x
     tax
-
     clc
+
+    ; if vibrato null, then go to @doneDetune
     lda wMacro_start+1.w, x
     beq @doneDetune
 
     ; A <- vibrato
+    ; (stored as reverse-signed 8-bit value)
     .define MACRO_LOOP_ZERO
     nse_nextMacroByte_inline_precalc_abaseaddr
 LUA_ASSERT BCC
@@ -616,10 +673,8 @@ LUA_ASSERT BCC
     bne @doneDetune ; guaranteed
 
 @negativeVibrato:
-    sec
-    sta wNSE_genVar0
-    lda wSoundFrequency
-    sbc wNSE_genVar0
+    clc
+    adc wSoundFrequency
     sta wSoundFrequency
     bcs +
     dec wSoundFrequency+1
@@ -643,10 +698,15 @@ LUA_ASSERT BCC
     adc wChannelIdx
     tay
 
+    LUA_ASSERT X_IS_CHAN_IDX
+    LUA_ASSERT Y_IS_X_TIMES_3
+
+@@volume:
     ; store volume in cached register
     pla ; A <- volume
     sta wMix_CacheReg_start, y
     
+@@frequency:
     ; store frequency in cached register
     lda wSoundFrequency
     sta wMix_CacheReg_start+1.w, y
@@ -655,6 +715,7 @@ LUA_ASSERT BCC
     ; (set length counter load to non-zero value -- paranoia)
     ora #$80
 
+@@compare:
     ; compare with existing value
     LUA_ASSERT X_IS_CHAN_IDX
     cmp wMix_CacheReg_start+2.w, y

@@ -219,15 +219,19 @@
     ; (i.e., no other label can be in this space.
     ; thus, we need nops.)
 .macro LUA_MARKER
-    nop
-    \1:
-    nop
+    .ifdef DEBUG
+        nop
+        \1:
+        nop
+    .endif
 .endm
 
 .macro LUA_ASSERT
-    nop
-    @@@\@_LUASRT_\1:
-    nop
+    .ifdef DEBUG
+        nop
+        @@@\@_LUASRT_\1:
+        nop
+    .endif
 .endm
 
 .macro ASSERT

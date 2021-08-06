@@ -10,8 +10,12 @@
     * require the `pypng` package to be installed. `python3 -m pip install pypng`
 
 ## Notation
-* the variable suffix _a1 (in any language) means "plus one". For example, the variable `chan_idx_a1` refers to a value of *one plus the channel idx*. Thus, `chan_idx_a1 = 3` means channel idx is 2 (i.e. triangle wave).
+* `pitch` refers to a note index, e.g. 0 is A0, 11 is G#-1, etc.
+* `frequency` refers to a PSU timer value (which is actually a measure of period, but the notation is stuck.)
+* `reverse-signed` means that the sign bit indicates positive instead of negative, e.g. `0x80` is 0, `0x81` is 1, and `0x7f` is -1.
+* the variable suffix `_a1` (in any language) means "plus one". For example, the variable `chan_idx_a1` refers to a value of *one plus the channel idx*. Thus, `chan_idx_a1 = 3` means channel idx is 2 (i.e. triangle wave).
   * This is useful for certain performance benefits in 6502. It is also useful in Lua because Lua is 1-indexed.
+  * The downside is, the variables `chan_idx` and `chan_idx_a1` exist as a union at the same point in memory, and it can sometimes be difficult to tell which one is active when reading the code.
 
 ## Structure
 * Disassembled PRG ROM exists in `code/`
@@ -25,3 +29,12 @@
   * code/newSoundEngineCommands.s
   * tools/ftToData.py
   * lua/nse_opcodes.lua (function 'display_pattern')
+
+## Debugging
+* In FCEUX using Lua: `fceux --loadlua nse.lua build/castlevania3build.nes`
+* In VSCode (via `fceux`):
+  * ensure luarocks is configured to install Lua 5.1-compatible libraries
+  * `luarocks install luasocket`
+  * `luarocks install dkjson`
+  * If on Linux, please ensure fceux compiled with Lua shared library support. `LUA_CFLAGS` should include `-DLUA_USE_DLOPEN -DDLUA_USE_POSIX`
+  * Press F5 in vscode
