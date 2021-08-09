@@ -712,7 +712,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
         release += 1
 
     # is there a release macro?
-    has_release = release >= 0
+    has_release = release >= 0 and release < len(ft_macro["data"])
 
     # output chunk parameters
     chunkps = [
@@ -778,7 +778,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                 if type == "duty":
                     nibble = (b << 2) | 3
                 if type == "vol":
-                    assert nibble != 0, "volume macro cannot contain 0."
+                    assert nibble != 0, "volume macro cannot contain 0." + error_context(type= type, label= label, **kwargs.get("context", {}))
                 data += [nibble & 0xf]
         elif type in ["arp", "arpmode"]:
             arpset = ["absolute", "fixed", "relative", "scheme"][ft_macro["setting"]]
@@ -866,7 +866,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
             # loop to end
             loop = len(data) - 1
         
-        assert len(data) >= 0, "empty macro?!"
+        assert len(data) > 0, "empty macro?!" + error_context(type=type, label=label, ft_macro=ft_macro, is_release=is_release)
         assert (loop >= 0)
         assert len(data) > loop, "loop point overruns macro data!"
 

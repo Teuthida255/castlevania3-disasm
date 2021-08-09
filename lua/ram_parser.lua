@@ -4,6 +4,18 @@ function channel_is_square(ch_idx)
   return ch_idx <= 1 or ch_idx >= 5
 end
 
+function channel_is_triangle(ch_idx)
+  return ch_idx == CHAN_TRI
+end
+
+function channel_is_noise(ch_idx)
+  return ch_idx == CHAN_NOISE
+end
+
+function channel_is_dpcm(ch_idx)
+  return ch_idx == CHAN_DPCM
+end
+
 function macro_is_null(macroAddr)
   return memory.readwordunsigned(macroAddr) == 0
 end

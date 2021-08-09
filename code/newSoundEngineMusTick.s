@@ -662,23 +662,15 @@ LUA_ASSERT X_IS_CHAN_IDX
 LUA_ASSERT BCC
     ; (-C)
     adc #$80
-    bmi @negativeVibrato
-    
+    bpl +
+    dec wSoundFrequency+1
++
     ; add vibrato
     clc
     adc wSoundFrequency
     sta wSoundFrequency
     bcc @doneDetune
     inc wSoundFrequency+1
-    bne @doneDetune ; guaranteed
-
-@negativeVibrato:
-    clc
-    adc wSoundFrequency
-    sta wSoundFrequency
-    bcs +
-    dec wSoundFrequency+1
-    + clc
 
 @doneDetune:
     ldx wChannelIdx
