@@ -560,12 +560,26 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
 
             wait_amount = row_idx - wait_data["wait_idx"]
 
+            dpcmkeys = ft["instruments"][state_instr]["dpcm"] if state_instr is not None else {}
+            dpcmkey = dpcmkeys.get(note, None)
+
             if cut:
                 out_nibbles(6, 0)
                 set_wait(row_idx)
             elif release:
                 out_nibbles(5, 0)
                 set_wait(row_idx)
+            elif dpcmkey is not None:
+                # play a dpcm sample!
+                pitch = dpcmkey["pitch"]
+                label = ("dpcm", dpcmkey["index"])
+                loop = dpcmkey["loop"]
+                offset = dpcmkey["loopoffset"]
+                delta = dpcmkey["delta"]
+                out_nibbles(1, pitch)
+                data.append(
+                    chunkptr(label, mapping=lambda addr: [(addr >> 6) & 0xFF])
+                )
             elif wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied:
                 # note continue
                 out_nibbles(4, 0)
@@ -584,9 +598,6 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 state_instr = instr
             
             wait_amount = row_idx - wait_data["wait_idx"]
-
-            dpcmkeys = ft["instruments"][state_instr]["dpcm"] if state_instr is not None else {}
-            dpcmkey = dpcmkeys.get(note, None)
             
 
             # note (or cut or release or continue)
@@ -598,17 +609,6 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 # need to remember that we've cut because
                 # this sets the channel volume to zero.
                 wait_data["state_cut"] = True
-            elif dpcmkey is not None:
-                # play a dpcm sample!
-                pitch = dpcmkey["pitch"]
-                label = ("dpcm", dpcmkey["index"])
-                loop = dpcmkey["loop"]
-                offset = dpcmkey["loopoffset"]
-                delta = dpcmkey["delta"]
-                out_nibbles(1, pitch)
-                data.append(
-                    chunkptr(label, mapping=lambda addr: [(addr >> 6) & 0xFF])
-                )
             elif release:
                 if note_change:
                     assert False, "change of pitch and release not allowed simultaneously" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)

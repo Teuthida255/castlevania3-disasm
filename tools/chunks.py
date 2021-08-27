@@ -19,7 +19,7 @@ def chunk(label, data, maxlo=0xff, offset=0, **kwargs):
         # all other virtual banks must simply be guaranteed to be
         # loaded at the same time as others in their class.
         "vbank": kwargs.get("vbank", 0),
-        "minaddr": kwargs.get("minaddr", 0xC000)
+        "minaddr": kwargs.get("minaddr", 0x8000)
     }
     for i, d in enumerate(c["data"]):
         if type(d) != dict:
@@ -120,6 +120,10 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
         steps = positive_modulo(chunk["align"] - address, chunk["align"]) + chunk["alignoff"]        
         address += steps
         i += steps
+
+    # error if address not in valid range
+    if chunk["minaddr"] is not None:
+        assert address >= chunk["minaddr"]
 
     chunk["addr"] = address + chunk["offset"]
     chunk["bank"] = bank
