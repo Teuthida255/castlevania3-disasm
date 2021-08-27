@@ -14,11 +14,12 @@ def chunk(label, data, maxlo=0xff, offset=0, **kwargs):
         "maxlo": maxlo,
         "offset": offset,
         "align": kwargs.get("align", 1),
-        "alignoff": kwargs.get("alignoff", 1),
+        "alignoff": kwargs.get("alignoff", 0),
         # vbank: 'virtual bank'. vbank 0 must always be accessible;
         # all other virtual banks must simply be guaranteed to be
         # loaded at the same time as others in their class.
-        "vbank": kwargs.get("vbank", 0)
+        "vbank": kwargs.get("vbank", 0),
+        "minaddr": kwargs.get("minaddr", 0xC000)
     }
     for i, d in enumerate(c["data"]):
         if type(d) != dict:
@@ -127,10 +128,16 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
             assert len(buff) - i >= 2
             addr = deref_chunkptr(d)
             # little-endian
-            buff[i] = addr & 0xff
-            buff[i + 1] = (addr >> 8) & 0xff
-            i += 2
-            steps += 2
+            if d["mapping"] is None:
+                buff[i] = addr & 0xff
+                buff[i + 1] = (addr >> 8) & 0xff
+                i += 2
+                steps += 2
+            else:
+                bytes = d["mapping"](addr)
+                buff += bytes
+                i += len(bytes)
+                steps += len(bytes)
         else:
             assert len(buff) - i >= 1
             assert d >= 0 and d < 0x100
@@ -139,7 +146,7 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
             steps += 1
     return steps
 
-def chunkptr(*args):
+def chunkptr(*args, **kwargs):
     if len(args) == 1 and type(args[0]) == tuple:
         label = args[0]
     elif len(args) > 1:
@@ -147,7 +154,8 @@ def chunkptr(*args):
     else:
         label = None
     return {
-        "ptr": label
+        "ptr": label,
+        **kwargs
     }
 
 def chunkaddr(ptr):

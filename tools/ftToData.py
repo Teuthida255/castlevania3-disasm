@@ -1,3 +1,4 @@
+from tools.chunks import chunkptr
 from utils import *
 from ftTextParser import ftParseTxt
 from chunks import *
@@ -13,10 +14,10 @@ ft = None
 
 NUM_CHANS = 7
 NUM_INSTRS = 0x10
+NSE_SQ = [0, 1, 5, 6]
 NSE_TRI = 2
 NSE_NOISE = 3
 NSE_DPCM = 4
-NSE_CONDUCTOR = 6
 MAX_WAIT_AMOUNT = 0x0F
 
 # add/remove these for debugging
@@ -29,7 +30,7 @@ channel_macros = [
     ["arp", "detune", "vol", "duty"], # sq2
     ["arp", "detune", "length"], # tri
     ["arpmode", "vol"], # noise
-    [], # dpcm
+    [], # dpcm (does not have macros)
     ["arp", "detune", "vol", "duty"], # sq3
     ["arp", "detune", "vol", "duty"]  # sq4
 ]
@@ -305,9 +306,6 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     phrase = pattern[chan_idx]
     loop_point = 1
     data = [1] # (loop point -- can be rewritten later)
-
-    if chan_idx == NSE_DPCM:
-        return [1, 1, 0]
     
     # output state
     state_instr = None
@@ -377,7 +375,6 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 else:
                     echo_buffer = [echo_v] + echo_buffer
 
-
     phrase_len = get_rows_in_phrase(pattern) or track["patternLength"]
     assert len(phrase) == track["patternLength"]
 
@@ -437,9 +434,12 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             assert instr in channel_pdata["instr_fd"]
             instr = channel_pdata["instr_fd"][instr]
 
-        vol = row["vol"]
-        if vol is not None:
-            vol = int(vol, 16)
+        if chan_idx == NSE_DPCM:
+            vol = 0xF
+        else:
+            vol = row["vol"]
+            if vol is not None:
+                vol = int(vol, 16)
         cut = note == "---"
         release = note == "==="
         note_change = False
@@ -482,23 +482,24 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 effect_applied = True
                 out_byte(opcodes["groove"])
                 data += [chunkptr(("groove", argx))]
-            elif op == "P":
+            elif op == "P" and chan_idx not in [NSE_DPCM, NSE_NOISE]:
                 # fine pitch
                 # actually subtracts from pitch value, so the reciprocal value is applied
                 out_byte(opcodes["detune"])
                 out_byte(0x100 - argx)
                 effect_applied = True
-            elif op == "0":
+            elif op == "0" and chan_idx not in [NSE_DPCM]:
                 # arpxy
                 effect_applied = True
                 out_byte(opcodes["arpxy"])
                 out_nibbles(nibx[1], nibx[0])
-            elif op == "3":
+            elif op == "3" and chan_idx not in [NSE_DPCM, NSE_NOISE]:
                 # portamento
                 effect_applied = True
                 out_byte(opcodes["portamento"])
                 out_byte(argx)
-            elif op == "4":
+            elif op == "4" and chan_idx not in [NSE_DPCM, NSE_NOISE]:
+                # vibrato
                 effect_applied = True
                 assert chan_idx != NSE_NOISE, "noise channel does not support vibrato" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
                 if nibx[0] == 0 or nibx[1] == 0:
@@ -513,7 +514,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                     data.append(
                         chunkptr(("vibrato", nibx[0], nibx[1]))
                     )
-            elif op == "H" or op == "I":
+            elif op == "H" or op == "I" and chan_idx not in [NSE_DPCM, NSE_NOISE]:
+                # sweep
                 effect_applied = True
                 negate_flag = 0 if op == "H" else 8
                 if nibx[0] == 0 and nibx[1] == 0:
@@ -524,24 +526,24 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                     sweep_applied = True
                     out_byte(opcodes["sweep"])
                     out_nibbles(nibx[0] | 8, nibx[1] | negate_flag)
-            elif effect[0:2] == "EE":
+            elif effect[0:2] == "EE" and chan_idx not in [NSE_DPCM]:
                 effect_applied = True
                 # disable length/linear counter
                 # TODO
                 pass
-            elif op == "E":
+            elif op == "E" and chan_idx not in [NSE_DPCM]:
                 # alternative volume-set command
                 if vol == None:
                     vol = argx
-            elif op == "S":
+            elif op == "S" and chan_idx not in [NSE_DPCM]:
                 # length/linear counter
                 # TODO
                 effect_applied = True
                 pass
-            elif op in ["W", "X", "Y", "Z"]:
+            elif op in ["W", "X", "Y", "Z"] and chan_idx == NSE_DPCM:
                 # DPCM stuff
                 pass
-            elif op == "V":
+            elif op == "V" and chan_idx in NSE_SQ:
                 effect_applied = True
                 # TODO: set duty cycle
                 pass
@@ -549,122 +551,156 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 print("WARNING: ignoring not-yet-implemented command: " + effect)
             else:
                 assert False, "unrecognized command: " + effect + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
-        
-        # write volume if it has changed
-        vol_change = False
-        prev_vol = state_vol
-        if vol is not None and vol != state_vol:
-            vol_change = vol != state_vol
-            state_vol = vol
 
-        # set instrument (state)
-        if instr is not None:
-            state_instr = instr
-        
-        wait_amount = row_idx - wait_data["wait_idx"]
+        # DPCM channel has different basic commands than other channels, so we handle these separately.
+        if chan_idx == NSE_DPCM:
+            # set instrument (state)
+            if instr is not None:
+                state_instr = instr
 
-        # note (or cut or release or continue)
-        if cut:
-            # (low nibble of this is the 'wait' time)
-            out_byte(opcodes["cut"])
-            set_wait(row_idx)
+            wait_amount = row_idx - wait_data["wait_idx"]
 
-            # need to remember that we've cut because
-            # this sets the channel volume to zero.
-            wait_data["state_cut"] = True
-
-        elif release:
-            if note_change:
-                assert False, "change of pitch and release not allowed simultaneously" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
+            if cut:
+                out_nibbles(6, 0)
+                set_wait(row_idx)
+            elif release:
+                out_nibbles(5, 0)
+                set_wait(row_idx)
+            elif wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied:
+                # note continue
+                out_nibbles(4, 0)
+                set_wait(row_idx)
             
-            out_byte(opcodes["release"])
-            out_nibbles(vol_nibble(), 0)
-            set_wait(row_idx)
-        elif ampersand:
-            # continue
+        else:
+            # select write volume if it has changed
+            vol_change = False
+            prev_vol = state_vol
+            if vol is not None and vol != state_vol:
+                vol_change = vol != state_vol
+                state_vol = vol
 
-            if note_change:
+            # set instrument (state)
+            if instr is not None:
+                state_instr = instr
+            
+            wait_amount = row_idx - wait_data["wait_idx"]
 
+            dpcmkeys = ft["instruments"][state_instr]["dpcm"] if state_instr is not None else {}
+            dpcmkey = dpcmkeys.get(note, None)
+            
+
+            # note (or cut or release or continue)
+            if cut:
+                # (low nibble of this is the 'wait' time)
+                out_byte(opcodes["cut"])
+                set_wait(row_idx)
+
+                # need to remember that we've cut because
+                # this sets the channel volume to zero.
+                wait_data["state_cut"] = True
+            elif dpcmkey is not None:
+                # play a dpcm sample!
+                pitch = dpcmkey["pitch"]
+                label = ("dpcm", dpcmkey["index"])
+                loop = dpcmkey["loop"]
+                offset = dpcmkey["loopoffset"]
+                delta = dpcmkey["delta"]
+                out_nibbles(1, pitch)
+                data.append(
+                    chunkptr(label, mapping=lambda addr: [(addr >> 6) & 0xFF])
+                )
+            elif release:
+                if note_change:
+                    assert False, "change of pitch and release not allowed simultaneously" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
+                
+                out_byte(opcodes["release"])
+                out_nibbles(vol_nibble(), 0)
+                set_wait(row_idx)
+            elif ampersand:
+                # continue
+
+                if note_change:
+
+                    # end any hardware sweep (if necessary)
+                    if sweep_applied:
+                        state_sweep = False
+                        out_byte(opcodes["sweep-cancel"])
+
+                    # continue with new pitch
+                    out_byte(opcodes["continue-pitch"])
+
+                    # continue-pitch has two parameter bytes:
+
+                    #  (1) the new pitch (i.e. note in semitones)
+                    out_byte(note)
+
+                    #  (2) the volume to use | wait
+                    out_nibbles(vol_nibble(), 0)
+                    set_wait(row_idx)
+                else:
+                    out_byte(opcodes["tie"])
+                    out_nibbles(vol_nibble(), 0)
+                    set_wait(row_idx)
+            elif note is not None:
+                # a note proper!
+                echo = False # TODO: echo notes?
+                
+                # write volume change if necessary
+                if vol_change or wait_data["state_cut"]:
+                    if state_echo_vol == state_vol or state_echo_vol_pending_addr >= 0:
+                        # swap in echo volume
+                        echo = True
+
+                        if state_echo_vol_pending_addr >= 0:
+                            state_echo_vol = state_vol
+
+                            # write echo vol at previous location
+                            data[state_echo_vol_pending_addr] |= (state_echo_vol << 4)
+
+                            state_echo_vol_pending_addr = -1
+
+                        # swap states
+                        state_vol = state_echo_vol
+                        state_echo_vol = prev_vol
+                    else:
+                        # set volume
+                        out_byte(opcodes["volume"])
+                        state_echo_vol_pending_addr = len(data)
+                        state_echo_vol = None
+                        # write echo volume later if we figure out what we want it to be.
+                        out_nibbles(0, state_vol)
+                
                 # end any hardware sweep (if necessary)
                 if sweep_applied:
                     state_sweep = False
                     out_byte(opcodes["sweep-cancel"])
 
-                # continue with new pitch
-                out_byte(opcodes["continue-pitch"])
+                # write note bytecode proper.
+                out_byte(note_opcode(note, echo))
 
-                # continue-pitch has two parameter bytes:
-
-                #  (1) the new pitch (i.e. note in semitones)
-                out_byte(note)
-
-                #  (2) the volume to use | wait
-                out_nibbles(vol_nibble(), 0)
+                # instrument and wait
+                assert state_instr != None, "cannot play note without setting instrument." + error_context(track=song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
+                assert state_instr >= 0 and state_instr < 0x10, "instrument must be in range 0-F" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
+                out_nibbles(state_instr, 0)
                 set_wait(row_idx)
-            else:
+            elif vol_change:
+                # change volume without any other effect.
                 out_byte(opcodes["tie"])
-                out_nibbles(vol_nibble(), 0)
+                out_nibbles(state_vol, 0)
                 set_wait(row_idx)
-        elif note is not None:
-            # a note proper!
-            echo = False # TODO: echo notes?
+            elif wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied:
+                # just need to tie; no other changes.
+                out_byte(opcodes["tie"])
+                out_nibbles(0, 0)
+                set_wait(row_idx)
             
-            # write volume change if necessary
-            if vol_change or wait_data["state_cut"]:
-                if state_echo_vol == state_vol or state_echo_vol_pending_addr >= 0:
-                    # swap in echo volume
-                    echo = True
-
-                    if state_echo_vol_pending_addr >= 0:
-                        state_echo_vol = state_vol
-
-                        # write echo vol at previous location
-                        data[state_echo_vol_pending_addr] |= (state_echo_vol << 4)
-
-                        state_echo_vol_pending_addr = -1
-
-                    # swap states
-                    state_vol = state_echo_vol
-                    state_echo_vol = prev_vol
-                else:
-                    # set volume
-                    out_byte(opcodes["volume"])
-                    state_echo_vol_pending_addr = len(data)
-                    state_echo_vol = None
-                    # write echo volume later if we figure out what we want it to be.
-                    out_nibbles(0, state_vol)
-            
-            # end any hardware sweep (if necessary)
-            if sweep_applied:
-                state_sweep = False
-                out_byte(opcodes["sweep-cancel"])
-
-            # write note bytecode proper.
-            out_byte(note_opcode(note, echo))
-
-            # instrument and wait
-            assert state_instr != None, "cannot play note without setting instrument." + error_context(track=song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
-            assert state_instr >= 0 and state_instr < 0x10, "instrument must be in range 0-F" + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
-            out_nibbles(state_instr, 0)
-            set_wait(row_idx)
-        elif vol_change:
-            # change volume without any other effect.
-            out_byte(opcodes["tie"])
-            out_nibbles(state_vol, 0)
-            set_wait(row_idx)
-        elif wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied:
-            # just need to tie; no other changes.
-            out_byte(opcodes["tie"])
-            out_nibbles(0, 0)
-            set_wait(row_idx)
-        
-        # this is the last row -- end loop and apply wait.
-        if early_break or row_idx == len(phrase) - 1:
-            # end of phrase
-            set_wait(row_idx + 1)
-            if state_sweep:
-                print("Warning: hardware sweep active at end of frame!")
-            break
+            # this is the last row -- end loop and apply wait.
+            if early_break or row_idx == len(phrase) - 1:
+                # end of phrase
+                set_wait(row_idx + 1)
+                if state_sweep:
+                    print("Warning: hardware sweep active at end of frame!")
+                break
     channel_pdata_phrase["echo-buffer"] = echo_buffer
     data[0] = loop_point
     assert len(data) > loop_point
@@ -966,6 +1002,18 @@ def make_macro_chunks():
 
     return chunks
 
+def make_dpcm_chunks():
+    chunks = []
+    # produces dpcm samples, each in their own chunk.
+    for dpcm_idx, dpcm in enumerate(ft["dpcm"]):
+        chunks.append(chunk(
+            ("dpcm", dpcm_idx),
+            dpcm["data"],
+            align=0x64,
+            minaddr=0xC000,
+        ))
+    return chunks
+
 # indexed as listed in 0cc's exported .txt
 phrase_chunks = dict()
 
@@ -1011,12 +1059,15 @@ def ft_to_data(path):
     global ft
     ft = ftParseTxt(path)
 
-    # sometimes we need a pointer to an empty chunk.
+    # sometimes we need a pointer to an "empty" chunk (a chunk with, say, 32 zeroes).
     chunks = [
         chunk("null32", [0] * 32)
     ]
 
     preprocess_tracks()
+
+    # TODO: dpcm samples should come later.
+    chunks += make_dpcm_chunks()
 
     chunks += make_instr_chunks() + make_phrase_chunks()
 
