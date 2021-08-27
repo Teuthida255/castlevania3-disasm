@@ -1,13 +1,8 @@
 ## Compiling
 * Requires [wla-dx](https://github.com/vhelin/wla-dx) and [python3](https://www.python.org/).
-* `make nes` will build the ROM in the `build/` directory, it assumes the directory `original` exists, with CHR ROM, `OR.chr` inside. ([NesExtract](https://github.com/X-death25/Nes-Extract) can be used to extract the chr from a ROM)
-* To compile the romhack version, define `export ROMHACK=1` before running `make nes`.
-* To get fceux debug symbols, build using `bash ./build.sh` instead.
-
-## Misc
-* Helper scripts:
-    * assume the PRG ROM exists at `original/OR.bin`, though this is just for data extraction atm
-    * require the `pypng` package to be installed. `python3 -m pip install pypng`
+* `build.sh` will build the ROM in the `build/` directory, it assumes the directory `original` exists, with CHR ROM, `OR.chr` inside. ([NesExtract](https://github.com/X-death25/Nes-Extract) can be used to extract the chr from a ROM)
+* Run `./build.sh cv3` to produce the original cv3 game, and `./build.sh sonia` to produce the sonia sound engine hacked version.
+* If building on Windows, [git bash](https://git-scm.com/downloads) is recommended.
 
 ## Notation
 * `pitch` refers to a note index, e.g. 0 is A0, 11 is G#-1, etc.
@@ -38,3 +33,8 @@
   * `luarocks install dkjson`
   * If on Linux, please ensure fceux compiled with Lua shared library support. `LUA_CFLAGS` should include `-DLUA_USE_DLOPEN -DDLUA_USE_POSIX`
   * Press F5 in vscode
+
+## Misc
+* Helper scripts:
+    * assume the PRG ROM exists at `original/OR.bin`, though this is just for data extraction atm
+    * require the `pypng` package to be installed. `python3 -m pip install pypng`
