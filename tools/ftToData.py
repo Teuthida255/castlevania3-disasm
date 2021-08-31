@@ -1,4 +1,3 @@
-from tools.chunks import chunkptr
 from utils import *
 from ftTextParser import ftParseTxt
 from chunks import *
@@ -216,6 +215,11 @@ def get_note_value_from_str(note):
         return val
 
     assert False, "unknown note value: " + note
+
+# converts octave and note class to note value
+# e.g. 0, 9 -> 0
+def get_note_value_from_octave_and_note(octave, note):
+    return octave * 12 + note - get_note_value_from_str("A-0")
 
 # extra track data created at preprocess time
 track_data = []
@@ -552,6 +556,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             else:
                 assert False, "unrecognized command: " + effect + error_context(track= song_idx, channel= chan_idx, pattern= pattern_idx, row= row_idx)
 
+        phrase_end = early_break or row_idx == len(phrase) - 1
+
         # DPCM channel has different basic commands than other channels, so we handle these separately.
         if chan_idx == NSE_DPCM:
             # set instrument (state)
@@ -560,8 +566,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
 
             wait_amount = row_idx - wait_data["wait_idx"]
 
-            dpcmkeys = ft["instruments"][state_instr]["dpcm"] if state_instr is not None else {}
-            dpcmkey = dpcmkeys.get(note, None)
+            dpcmkeys = ft["instruments"][channel_pdata["instr_df"][state_instr]]["dpcmkeys"] if state_instr is not None else {}
+            dpcmkey = dpcmkeys.get(note + note_values["A-"], None) if note is not None else None
 
             if cut:
                 out_nibbles(6, 0)
@@ -570,21 +576,31 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 out_nibbles(5, 0)
                 set_wait(row_idx)
             elif dpcmkey is not None:
-                # play a dpcm sample!
+                # play a dpcm sample! :D
                 pitch = dpcmkey["pitch"]
                 label = ("dpcm", dpcmkey["index"])
                 loop = dpcmkey["loop"]
-                offset = dpcmkey["loopoffset"]
+                offset = dpcmkey["loopOffset"]
                 delta = dpcmkey["delta"]
+
+                # 1P opcode to play w/ pitch
                 out_nibbles(1, pitch)
+
+                # single byte pointer to dpcm sample
                 data.append(
                     chunkptr(label, mapping=lambda addr: [(addr >> 6) & 0xFF])
                 )
-            elif wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied:
+
+                # $4011 write
+                out_byte(delta if delta >= 0 else 0xFF)
+
+                # offset and rest
+                out_nibbles(offset, 0)
+                set_wait(row_idx)
+            elif (wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied) and not phrase_end:
                 # note continue
                 out_nibbles(4, 0)
                 set_wait(row_idx)
-            
         else:
             # select write volume if it has changed
             vol_change = False
@@ -688,19 +704,19 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 out_byte(opcodes["tie"])
                 out_nibbles(state_vol, 0)
                 set_wait(row_idx)
-            elif wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied:
+            elif (wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied) and not phrase_end:
                 # just need to tie; no other changes.
                 out_byte(opcodes["tie"])
                 out_nibbles(0, 0)
                 set_wait(row_idx)
             
-            # this is the last row -- end loop and apply wait.
-            if early_break or row_idx == len(phrase) - 1:
-                # end of phrase
-                set_wait(row_idx + 1)
-                if state_sweep:
-                    print("Warning: hardware sweep active at end of frame!")
-                break
+        # this is the last row -- end loop and apply wait.
+        if phrase_end:
+            # end of phrase
+            set_wait(row_idx + 1)
+            if state_sweep:
+                print("Warning: hardware sweep active at end of frame!")
+            break
     channel_pdata_phrase["echo-buffer"] = echo_buffer
     data[0] = loop_point
     assert len(data) > loop_point
@@ -1011,6 +1027,7 @@ def make_dpcm_chunks():
             dpcm["data"],
             align=0x64,
             minaddr=0xC000,
+            vbank=1
         ))
     return chunks
 

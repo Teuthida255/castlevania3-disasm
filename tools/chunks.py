@@ -15,9 +15,7 @@ def chunk(label, data, maxlo=0xff, offset=0, **kwargs):
         "offset": offset,
         "align": kwargs.get("align", 1),
         "alignoff": kwargs.get("alignoff", 0),
-        # vbank: 'virtual bank'. vbank 0 must always be accessible;
-        # all other virtual banks must simply be guaranteed to be
-        # loaded at the same time as others in their class.
+        # vbank: 'virtual bank'. May not map 1-1 to actual banks.
         "vbank": kwargs.get("vbank", 0),
         "minaddr": kwargs.get("minaddr", 0x8000)
     }
@@ -85,7 +83,7 @@ def assign_chunk(chunk, address, bank):
 
 # returns number of bytes advanced
 # (address may be modified)
-def write_chunk(chunk, buff, i, address=None, bank=None):
+def write_chunk(chunk, buff, i, address=None, bank=None, iend=None):
     steps = 0
     if address is None:
         address = i
@@ -123,7 +121,7 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
 
     # error if address not in valid range
     if chunk["minaddr"] is not None:
-        assert address >= chunk["minaddr"]
+        assert address >= chunk["minaddr"], str(chunk["label"]) + ": address " + hex(address) + " less than minimum address " + hex(chunk["minaddr"])
 
     chunk["addr"] = address + chunk["offset"]
     chunk["bank"] = bank
@@ -132,14 +130,15 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
             assert len(buff) - i >= 2
             addr = deref_chunkptr(d)
             # little-endian
-            if d["mapping"] is None:
+            if "mapping" not in d:
                 buff[i] = addr & 0xff
                 buff[i + 1] = (addr >> 8) & 0xff
                 i += 2
                 steps += 2
             else:
                 bytes = d["mapping"](addr)
-                buff += bytes
+                for j, b in enumerate(bytes):
+                    buff[i + j] = b
                 i += len(bytes)
                 steps += len(bytes)
         else:
@@ -148,6 +147,8 @@ def write_chunk(chunk, buff, i, address=None, bank=None):
             buff[i] = d
             i += 1
             steps += 1
+    if iend is not None and i > iend:
+        raise Exception("bank end exceeded")
     return steps
 
 def chunkptr(*args, **kwargs):
@@ -167,7 +168,7 @@ def chunkaddr(ptr):
         ptr = ptr["ptr"]
     if is_chunk(ptr):
         ptr = ptr["label"]
-    return chunkmap[label]["addr"]
+    return chunkmap[ptr]["addr"]
 
 def deref_chunkptr(ptr):
     label = ptr["ptr"]

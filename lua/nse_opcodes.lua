@@ -13,10 +13,7 @@ function interpret_pattern(chan_idx_a1, addr, offset, track_number)
   local loop_idx = rom.readbyteunsigned(addr)
   addr = addr + 1
 
-  if CHANNEL_NAMES[chan_idx_a1] == "DPCM" then
-    -- TODO
-    return "[DPCM]"
-  end
+  is_dpcm = CHANNEL_NAMES[chan_idx_a1] == "DPCM"
 
   -- parse opcodes
   local acc = "PATTERN (rom 0x" .. HEX(addr - 1, 4) .. "+" .. HX(offset) .. ")\n"
@@ -32,7 +29,29 @@ function interpret_pattern(chan_idx_a1, addr, offset, track_number)
     addr = addr + 1
 
     -- parse specific opcode
-    if op == 0 then
+    if is_dpcm and op >= 0x10 and op < 0x20 then
+      s = "play rate " .. HX(bit.band(op, 0xF))
+      local sample_addr = bit.bor(0xC000, bit.rshift(rom.readbyteunsigned(addr), 6))
+      local load = rom.readbyteunsigned(addr + 1)
+      local b = rom.readbyteunsigned(addr + 2)
+      local offset = bit.rshift(bit.band(b, 0xf0), 4)
+      s = s .. " from " .. HX(sample_addr, 4)
+      s = s .. " offset " .. HX(offset, 2)
+      if load ~= 0xF then
+        s = s .. " load " .. rom.readbyteunsigned(addr + 3)
+      end
+      read_wait = bit.rshift(bit.band(b, 0x0f), 0)
+      addr = addr + 3
+    elseif is_dpcm and op >= 0x40 and op < 0x50 then
+      s = "continue"
+      read_wait = bit.rshift(bit.band(op, 0x0f), 0)
+    elseif is_dpcm and op >= 0x50 and op < 0x60 then
+      s = "release"
+      read_wait = bit.rshift(bit.band(op, 0x0f), 0)
+    elseif is_dpcm and op >= 0x60 and op < 0x70 then
+      s = "cut"
+      read_wait = bit.rshift(bit.band(op, 0x0f), 0)
+    elseif op == 0 then
       -- end/loop
       done = true
       s = "===== loop ======"

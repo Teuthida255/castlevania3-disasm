@@ -264,6 +264,7 @@ function on_save_state()
     emu.print("=========================================")
     emu.print("save state interrupt receieved. (frame " .. hex(emu.framecount()) .. ")")
     emu.print("")
+    
     g_print_emu_only = true
     handle_input()
     display()
