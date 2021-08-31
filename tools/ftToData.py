@@ -66,17 +66,27 @@ def get_song_loop_point(i):
                             return int(effect[1:], 16)
     return 0
 
+def get_rows_in_frame(song_idx, frame_idx):
+    ft_track = ft["tracks"][song_idx]
+    default_rows = ft_track["patternLength"]
+    frame = ft_track["frames"][frame_idx]
+    pattern_lengths = list(filter(lambda x: x is not None, [
+            get_rows_in_phrase(song_idx, pattern_idx, instr_idx) for instr_idx, pattern_idx in enumerate(frame)]
+        ))
+    return min(
+        [default_rows] + pattern_lengths
+    )
+
 # returns None if not found
-def get_rows_in_phrase(pattern):
-    for instrrows in pattern:
-        for i, row in enumerate(instrrows):
-            for effect in row["effects"]:
-                if effect[0] == "D":
-                    return i + 1
-                if effect[0] == "B":
-                    return i + 1
-                if effect[0] == "C":
-                    return i + 1
+def get_rows_in_phrase(song_idx, pattern_idx, chan_idx):
+    for i, row in enumerate(ft["tracks"][song_idx]["patterns"][pattern_idx][chan_idx]):
+        for effect in row["effects"]:
+            if effect[0] == "D":
+                return i + 1
+            if effect[0] == "B":
+                return i + 1
+            if effect[0] == "C":
+                return i + 1
     return None
 
 def channel_chunk(song_idx, channel_idx):
@@ -107,9 +117,7 @@ def song_chunk(i):
             # phrase data
             *flatten([
                 # rows in this frame's phrases
-                [get_rows_in_phrase(ft_track["patterns"][
-                        frame[NSE_DPCM]
-                    ]) or default_rows
+                [get_rows_in_frame(i, frame_idx) or default_rows
                 ] + 
                 # phrases in this frame (per channel)
                 # TODO: assign phrase numbers per-song
@@ -251,6 +259,7 @@ def preprocess_tracks():
                     "rows": [],
                     "prev-phrases": set(), # phrases which come immediately before this phrase. -1 means the phrase is a starting phrase
                     "used": False, # is this phrase used at all in the track?
+                    "lengths": set(), # the lengths of the patterns this phrase appears in
                 }
                 channel_data = data["channels"][chan_idx]
                 
@@ -266,8 +275,12 @@ def preprocess_tracks():
         # determine canonical pattern order
         frames = track["frames"]
         for i, frame in enumerate(frames):
+            pattern_length = track["patternLength"]
             for channel_idx, phrase_idx in enumerate(frame):
                 phrase_data = data["patterns"][phrase_idx]["channels"][channel_idx]
+                croplength = get_rows_in_phrase(track_idx, phrase_idx, channel_idx)
+                if croplength is not None:
+                    pattern_length = min(pattern_length, croplength)
 
                 canonical = (channel_idx, phrase_idx)
                 if canonical not in data["canonical-phrase-list"]:
@@ -284,6 +297,9 @@ def preprocess_tracks():
                     next_phrase_data["prev-phrases"].add(phrase_idx)
                 if i == 0:
                     phrase_data["prev-phrases"].add(-1)
+            # append to "lengths" for each pattern
+            for channel_idx, phrase_idx in enumerate(frame):
+                data["patterns"][phrase_idx]["channels"][channel_idx]["lengths"].add(pattern_length)
 
         # TODO: identify channels which can use the same instruments and phrases,
         # then merge their channel structs
@@ -379,7 +395,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 else:
                     echo_buffer = [echo_v] + echo_buffer
 
-    phrase_len = get_rows_in_phrase(pattern) or track["patternLength"]
+    # build phrase up to maximum length that it appears as in the track.
+    phrase_len = max(list(channel_pdata_phrase["lengths"]))
     assert len(phrase) == track["patternLength"]
 
     wait_data = {

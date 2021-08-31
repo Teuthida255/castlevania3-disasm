@@ -116,8 +116,9 @@ function display()
     -- bankswap info
     print_fceux("mmc5 prg:" .. tostring(mmc5_bytes[0x5100]))
     -- song macro
+    local rows_remaining = ram_read_byte_by_name("wMusRowsToNextFrame_a1")
     local song_macro = g_symbols_ram["wMacro@Song"]
-    print_fceux("song-macro: " .. macro_to_string_brief(song_macro));
+    print_fceux("song-macro: " .. macro_to_string_brief(song_macro) .. " -" .. HX(rows_remaining, 2));
 
     -- groove info
     local ticks_to_next_row = ram_read_byte_by_name("wMusTicksToNextRow_a1")
