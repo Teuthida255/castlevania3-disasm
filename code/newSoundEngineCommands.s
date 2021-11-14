@@ -26,8 +26,99 @@ LUA_MARKER NSE_COMMANDS_BEGIN
     fail_if bne
 .endm
 
+nse_dpcm_play:
+    ; read pointer byte from instruction
+    ; set sample pointer in gv0
+    ldx #(wMacro@DPCM_Phrase - wMacro@Song)
+    jsr nse_nextMacroByte@precalc
+    sta wNSE_genVar0
+
+    ; read length from instruction
+    ldx #(wMacro@DPCM_Phrase - wMacro@Song)
+    jsr nse_nextMacroByte@precalc
+    sta wNSE_genVar3
+
+    ; read $4011 byte from instruction
+    ldx #(wMacro@DPCM_Phrase - wMacro@Song)
+    jsr nse_nextMacroByte@precalc
+    sta wNSE_genVar1
+
+    ; read offset|rest  from instruction
+    ldx #(wMacro@DPCM_Phrase - wMacro@Song)
+    jsr nse_nextMacroByte@precalc
+
+    ; quick access to these to allow
+    ; critical window to be as short as possible
+    ldy wNSE_genVar2 ; (y <- opcode)
+    sta wNSE_genVar2 ; (gv2 <- offset + rest)
+    ldx wNSE_genVar3 ; (x <- sample length)
+
+    ; disable DMC while adjusting it
+    lda #SNDENA_NOISE|SNDENA_TRI|SNDENA_SQ2|SNDENA_SQ1
+	sta SND_CHN.w
+
+    ; set pitch from opcode
+    sty DMC_FREQ.w
+
+    ; set sample pointer from gv0, length from x = gv1
+    ldy wNSE_genVar0
+    sty DMC_START.w
+    stx DMC_START.w
+
+    ; set $4011 if in range 0-7F
+    lda wNSE_genVar1
+    bmi +
+        ; write twice to avoid possible conflict
+        sta DMC_RAW.w
+        sta DMC_RAW.w
+    +
+
+    ; enable DMC to play sample.
+    lda #SNDENA_NOISE|SNDENA_TRI|SNDENA_SQ2|SNDENA_SQ1|SNDENA_DMC
+	sta SND_CHN.w
+
+    ; ignore "offset" for now (what does it mean..?)
+
+    ; gv2 is offset | rest
+    jmp nse_execSetWaitFromLowNibbleGV2
+
+
+nse_dpcm_cut:
+    lda #SNDENA_NOISE|SNDENA_TRI|SNDENA_SQ2|SNDENA_SQ1
+	sta SND_CHN.w
+    lda #$0
+    sta DMC_RAW
+    jmp nse_execSetWaitFromLowNibbleGV2
+
+nse_dpcm_release:
+    ; disable DMC channel.
+    lda #SNDENA_NOISE|SNDENA_TRI|SNDENA_SQ2|SNDENA_SQ1
+	sta SND_CHN.w
+    ; read wait
+    jmp nse_execSetWaitFromLowNibbleGV2
+
 nse_execDPCM:
     rts
+    ; NOTE -- commands play dmc directly.
+    ; TODO -- how to handle sfx channel overlapping this...
+    sta wNSE_genVar2 ; gv2 <- full opcode
+    shift -3
+    and #$0E
+    tay
+    jsr jumpTableNoPreserveY
+@nse_dpcm_effect_n1_jumpTable:
+    ; jump based on first nibble
+
+    ; 0
+    .dw 0
+    .dw nse_dpcm_play
+    .dw 0
+    .dw nse_execSetWaitFromLowNibbleGV2
+
+    ; 4
+    .dw nse_dpcm_play ; (tie) nse_dpcm_tie
+    .dw nse_dpcm_release ;nse_dpcm_release
+    .dw nse_dpcm_cut ;nse_dpcm_cut
 
 nse_execSq_SetEcho:
     ; TODO

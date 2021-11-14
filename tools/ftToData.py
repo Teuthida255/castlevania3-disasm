@@ -599,13 +599,19 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 loop = dpcmkey["loop"]
                 offset = dpcmkey["loopOffset"]
                 delta = dpcmkey["delta"]
+                length = dpcm_len4013[dpcmkey["index"]]
 
                 # 1P opcode to play w/ pitch
-                out_nibbles(1, pitch)
+                out_nibbles(4 if loop else 1, pitch)
 
                 # single byte pointer to dpcm sample
                 data.append(
                     chunkptr(label, mapping=lambda addr: [(addr >> 6) & 0xFF])
+                )
+
+                # sample length
+                out_byte(
+                    length
                 )
 
                 # $4011 write
@@ -616,7 +622,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 set_wait(row_idx)
             elif (wait_amount >= MAX_WAIT_AMOUNT or row_idx == 0 or effect_applied) and not phrase_end:
                 # note continue
-                out_nibbles(4, 0)
+                out_nibbles(3, 0)
                 set_wait(row_idx)
         else:
             # select write volume if it has changed
@@ -1035,13 +1041,24 @@ def make_macro_chunks():
 
     return chunks
 
+# $4013 length write for dpcm samples by idx
+dpcm_len4013 = {}
+
 def make_dpcm_chunks():
     chunks = []
     # produces dpcm samples, each in their own chunk.
     for dpcm_idx, dpcm in enumerate(ft["dpcm"]):
+        data = dpcm["data"] + []
+        dpcm_len4013[dpcm_idx] = int(max(0, len(dpcm["data"]) - 1) / 0x10)
+        # pad sample with excess bytes until it becomes a multiple of 16 (or one more than)
+        # (we should really always pad until it becomes one more than a multiple of 16,
+        #  but then we lose the ability to pack samples nicely, so we sacrifice a single byte of DPCM
+        #  garbage data to save 63 bytes of ROM.)
+        while len(data) == 0 or len(data) % 0x10 > 1:
+            data += [0xAA]
         chunks.append(chunk(
             ("dpcm", dpcm_idx),
-            dpcm["data"],
+            data,
             align=0x64,
             minaddr=0xC000,
             vbank=1

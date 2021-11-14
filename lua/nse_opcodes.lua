@@ -29,20 +29,27 @@ function interpret_pattern(chan_idx_a1, addr, offset, track_number)
     addr = addr + 1
 
     -- parse specific opcode
-    if is_dpcm and op >= 0x10 and op < 0x20 then
-      s = "play rate " .. HX(bit.band(op, 0xF))
+    if is_dpcm and ((op >= 0x10 and op < 0x20) or op >= 0x40 and op < 0x50) then
+      if op < 0x20 then
+        s = "play"
+      else
+        s = "loop"
+      end
+      s = s .. " rate " .. HX(bit.band(op, 0xF))
       local sample_addr = bit.bor(0xC000, bit.rshift(rom.readbyteunsigned(addr), 6))
-      local load = rom.readbyteunsigned(addr + 1)
-      local b = rom.readbyteunsigned(addr + 2)
+      local length = rom.readbyteunsigned(addr + 1)
+      local load = rom.readbyteunsigned(addr + 2)
+      local b = rom.readbyteunsigned(addr + 3)
       local offset = bit.rshift(bit.band(b, 0xf0), 4)
       s = s .. " from " .. HX(sample_addr, 4)
+      s = s .. " length " .. HX(length * 0x10 + 1)
       s = s .. " offset " .. HX(offset, 2)
       if load ~= 0xF then
         s = s .. " load " .. rom.readbyteunsigned(addr + 3)
       end
       read_wait = bit.rshift(bit.band(b, 0x0f), 0)
-      addr = addr + 3
-    elseif is_dpcm and op >= 0x40 and op < 0x50 then
+      addr = addr + 4
+    elseif is_dpcm and op >= 0x30 and op < 0x40 then
       s = "continue"
       read_wait = bit.rshift(bit.band(op, 0x0f), 0)
     elseif is_dpcm and op >= 0x50 and op < 0x60 then
