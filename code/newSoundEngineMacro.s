@@ -7,6 +7,7 @@
 ; optional argument: store previous macro offset in the given address.
 ; carry clear
 .macro nse_nextMacroByte_inline_precalc_abaseaddr
+        .ifndef SKIP_SET_MACRO_ADDR
         sta wSoundBankTempAddr2+1
         .ifdef MACRO_BYTE_ABSOLUTE
             lda wMacro_start+MACRO_BYTE_ABSOLUTE.w
@@ -14,6 +15,7 @@
             lda wMacro_start.w, X
         .endif
         sta wSoundBankTempAddr2
+        .endif
         .if NARGS == 1
             ; carry is used to indicate if we've
             ; already set the previous counter value.

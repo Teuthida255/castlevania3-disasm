@@ -59,7 +59,7 @@ def build(prg):
         symfile.write("\n")
         addr_soundtable_lo = symbols["nse_soundTable_lo"]
         addr_soundtable_hi = symbols["nse_soundTable_hi"]
-        chunks = ftToData.ft_to_data("resources/AoC_Tests_Arp.txt")
+        chunks = ftToData.ft_to_data("resources/AoC_Demo_2.txt")
         chunklabels = [chunk["label"] for chunk in chunks]
 
         # "null32" is defined in ftToData.py as 32 zeroes.

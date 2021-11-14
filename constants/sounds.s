@@ -111,6 +111,12 @@
                 ; dsw ...
     .endm
     
+    .macro Instrument_t
+        instrumentMacroTable\@:
+            @macroAddr:
+                ; dsw ...
+    .endm
+    
 
     .define MUS_SILENCE $43
     

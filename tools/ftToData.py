@@ -514,6 +514,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
                 # arpxy
                 effect_applied = True
                 out_byte(opcodes["arpxy"])
+                # nibx[0] sets X and nibx[1] sets Y.
+                # in the asm, we set Y from the high nibble:
                 out_nibbles(nibx[1], nibx[0])
             elif op == "3" and chan_idx not in [NSE_DPCM, NSE_NOISE]:
                 # portamento
@@ -829,7 +831,7 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
         chunkps[0]["ft_data"] = ft_macro_data
         if loop >= 0:
             chunkps[0]["loop"] = loop
-
+            
     for is_release, chunkp in enumerate(chunkps):
         ft_data = [*chunkp["ft_data"]] # input data (copy)
         assert len(ft_data) >= 0
@@ -894,19 +896,24 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                     y = False
                     mode = False
                     if b < 0:
-                        b += 0x80
+                        b += 0x100
                     assert b in range(0, 0x100)
-                    if arpset == "absolute":
+                    if arpset == "scheme":
                         y = (b & 0x80) != 0
                         x = (b & 0x40) != 0
-                        negative = x and y
+                        negative = (x and y)
                     else:
                         negative = b & 0x80 != 0
+                        
                     
                     # convert to absolute form
                     if negative:
-                        b -= 0x80
-                        b = abs(b)
+                        b -= 0x100
+                        b = abs(b) & 0xFF
+                        
+                    if not x and not y and b == 0:
+                        # prevents 0-byte.
+                        negative = False
 
                     if mode_macro:
                         if is_release:
@@ -927,17 +934,17 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
                         b |= 0x80
                     if y:
                         b |= 0x40
-                    if not negative:
+                    if not negative and not x and not y:
                         b |= 0xC0
                     if mode:
                         b |= 0x20
+                    assert(b != 0)
                     data += [b]
         else:
             # no support for other macros yet.
             assert False
 
         assert 0 not in data, "macros cannot contain 0" + error_context(type= type, label= label, **kwargs.get("context", {}))
-        
         # add loop point to release
         loop = 0
         loop_packing_offset = 0
@@ -969,8 +976,8 @@ def make_macro_chunk(type, ft_macro, label, **kwargs):
         # if packing >= 2, pack array (into nibbles or bit-pairs or bits, etc.)
         data = pack_array(data, packing)
 
-        # prepend loop point.
-        data = [(loop // packing) + 1] + data
+        # prepend loop point, append loop marker (0).
+        data = [(loop // packing) + 1] + data + [0]
 
         # prepend release macro ptr
         # (chunkp["offset"] set to 2 to account for this.)
@@ -1142,10 +1149,9 @@ def print_debug_info():
                     for macro_type_idx, macro_idx in enumerate(ft_instr['macros']):
                         if macro_idx != -1:
                             macro = ft["macros"][(macro_type_idx, macro_idx)]
-                            s = f"{_(3)}Macro {macro_names[macro_type_idx]}; ft: {macro_idx}." \
-                                + f"{' Type '  +macro['settingName'] if 'settingName' in macro else ''}"
-                            s = s + max(0, 44 - len(s)) * " "
-                            print(s + debug_macro_data(macro))
+                            print(f"{_(3)}Macro {macro_names[macro_type_idx]}; ft: {macro_idx}." \
+                                + f"{' Type '  +macro['settingName'] if 'settingName' in macro else ''}")
+                            print(f"{_(4)}ft macro: " + debug_macro_data(macro))
         print(f"  unique phrase count: ", len(track["canonical-phrase-list"]))
         print(f"  patterns: ", len(track["patterns"]))
         #for j, pattern in enumerate(track["patterns"]):

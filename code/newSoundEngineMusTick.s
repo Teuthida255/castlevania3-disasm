@@ -418,7 +418,15 @@ LUA_ASSERT BCC
 ; -------------
 @fixedMacro:
     rol
+    
+    ; very custom macro loading logic to save precious cycles.
+    .define SKIP_SET_MACRO_ADDR
+    sta wSoundBankTempAddr2
+    lda wMacro_start+1.w, X
+    sta wSoundBankTempAddr2+1
     nse_nextMacroByte_inline_precalc_abaseaddr
+    .undef SKIP_SET_MACRO_ADDR
+    
     bpl + ; assumption: the only possible negative value is FF.
     ; FF means use unmodified base pitch, so this hack does that
     ; by setting the carry value.
