@@ -1,5 +1,5 @@
 from utils import *
-from ftTextParser import ftParseTxt
+from ftTextParser import ftParseTxt, macro_names
 from chunks import *
 import json
 import os.path
@@ -18,6 +18,7 @@ NSE_TRI = 2
 NSE_NOISE = 3
 NSE_DPCM = 4
 MAX_WAIT_AMOUNT = 0x0F
+CHANNEL_NAMES = ["Sq1", "Sq2", "Tri", "Noise", "DPCM", "Sq3", "Sq4"]
 
 # add/remove these for debugging
 enabled_macros = ["vol", "duty", "arp"]
@@ -237,7 +238,7 @@ def preprocess_tracks():
         data = {
             "name": track["title"],
             "patterns": [],
-            "canonical-phrase-list": [], # contains tuples (channel, phrase-idx) ordered as they appear in the song.
+            "canonical-phrase-list": [], # contains tuples (channel, phrase-idx) ordered as they appear in the song. Allows iteration over phrases in correct process-order.
             "channels": [{
                 # ft instruments used
                 "instr_f": set(),
@@ -628,6 +629,9 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
             # select write volume if it has changed
             vol_change = False
             prev_vol = state_vol
+            if vol is None and state_vol is None and note:
+                # default to 0xF if vol and state_vol are none.
+                vol = 0xF
             if vol is not None and vol != state_vol:
                 vol_change = vol != state_vol
                 state_vol = vol
@@ -1106,6 +1110,49 @@ def make_phrase_chunks():
             assert(is_chunk(chunks[-1]))
     return chunks
 
+def debug_macro_data(macro):
+    s = ""
+    for i, v in enumerate(macro["data"]):
+        if i == macro["loop"] and i == macro["release"]:
+            s += "->|"
+        elif i == macro["loop"]:
+            s += "| "
+        elif i == macro["release"]:
+            s += "-> "
+        if v < 0:
+            v += 0x100
+        s += HX(v, 2) + " "
+    return s
+
+def print_debug_info():
+    print("\n-----------")
+    def _(n=0): # indent function
+        return "  " * n
+    print("tracks: ", len(track_data))
+    for i, track in enumerate(track_data):
+        print(f"  track {i}: {track['name']}")
+        for ch_idx, channel in enumerate(track["channels"]):
+            if len(channel["instr_df"]) > 0:
+                print(f"{_(1)}Channel {CHANNEL_NAMES[ch_idx]}:")
+                for instr_idx in channel["instr_df"]:
+                    ft_instr_idx = channel["instr_df"][instr_idx]
+                    ft_instr = ft["instruments"][ft_instr_idx]
+                    print(f"{_(2)}Instr {instr_idx}; ft: {ft_instr_idx}, \"{ft_instr['name']}\"")
+                    #(f"{_(3)}Type {ft_instr['type']}") # INSTR2A03, etc.
+                    for macro_type_idx, macro_idx in enumerate(ft_instr['macros']):
+                        if macro_idx != -1:
+                            macro = ft["macros"][(macro_type_idx, macro_idx)]
+                            s = f"{_(3)}Macro {macro_names[macro_type_idx]}; ft: {macro_idx}." \
+                                + f"{' Type '  +macro['settingName'] if 'settingName' in macro else ''}"
+                            s = s + max(0, 44 - len(s)) * " "
+                            print(s + debug_macro_data(macro))
+        print(f"  unique phrase count: ", len(track["canonical-phrase-list"]))
+        print(f"  patterns: ", len(track["patterns"]))
+        #for j, pattern in enumerate(track["patterns"]):
+        #    print(f"    pattern {j}:")
+        #    for channel in pattern["channels"]:
+    print("-----------\n")
+
 def ft_to_data(path):
     global ft
     ft = ftParseTxt(path)
@@ -1134,6 +1181,8 @@ def ft_to_data(path):
             for i in range(len(ft["tracks"]))
         ])
     ]
+    
+    print_debug_info()
 
     return chunks
 

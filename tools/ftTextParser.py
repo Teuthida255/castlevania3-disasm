@@ -21,6 +21,13 @@ token_insts = [
 ]
 
 macro_names = ["volume", "arpeggio", "pitch", "hi-pitch", "duty"]
+setting_names = [
+    [None], # volume
+    ["absolute", "fixed", "relative", "scheme"], # arpeggio
+    [None], # pitch
+    [None], # hi-pitch
+    [None], # duty
+]
 
 # returns dict containing ft data, representable in json.
 def ftParseTxt(path):
@@ -108,7 +115,7 @@ def ftParseTxt(path):
             dpcms[-1]["data"].extend(map(lambda b: int(b, 16), dpcmBytes))
         
         elif op in token_macros:
-            macros[(z[0], z[1])] = {
+            _macro = {
                 "chipname": op,
                 "chip": token_macros.index(op),
                 "type": macro_names[z[0]],
@@ -119,6 +126,12 @@ def ftParseTxt(path):
                 "setting": z[4],
                 "data": z[6:]
             }
+            
+            setting_name = setting_names[z[0]][z[4]]
+            if setting_name:
+                _macro["settingName"] = setting_name
+            
+            macros[(z[0], z[1])] = _macro
         
         elif op == 'GROOVE':
             assert len(z) - 3 == z[1], "groove length and data do not match"
@@ -133,8 +146,8 @@ def ftParseTxt(path):
 
         elif op in token_insts:
             instruments.append({
-                "type": op,
-                "index": z[0],
+                "type": op, # INSTR_2A03, etc.
+                "index": z[0], # index per type. (can ignore if only INSTR_2A03)
                 "macros": z[1:6],
                 "name": args[6].replace('"', ""),
                 "dpcmkeys": {}

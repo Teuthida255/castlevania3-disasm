@@ -27,6 +27,7 @@
 
 ## Debugging
 * In FCEUX using Lua: `fceux --loadlua nse.lua build/castlevania3build.nes`
+  * Save state to get a read-out of the sound engine data.
 * In VSCode (via `fceux`):
   * ensure luarocks is configured to install Lua 5.1-compatible libraries
   * `luarocks install luasocket`
