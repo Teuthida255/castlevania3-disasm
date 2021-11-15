@@ -72,7 +72,7 @@ _nse_hardwareTable_hi:
 pitchFrequencies_hi:
     .db $07 ; A-0
     .db $07 ; A#0
-    .db $07 ; B-0
+    .db $06 ; B-0
     .db $06 ; C-1
     .db $06 ; C#1
     .db $05 ; D-1
@@ -172,29 +172,29 @@ volumeTable:
 pitchFrequencies_lo:
     ; detuned from 440 Hz specifically for AoC.
     
-    .db $DC ; A-0
-    .db $6B ; A#0
-    .db $00 ; B-0
-    .db $9C ; C-1
-    .db $ED ; C#1
-    .db $E3 ; D-1
-    .db $8E ; D#1
+    .db $DB ; A-0
+    .db $6A ; A#0
+    .db $FF ; B-0
+    .db $9B ; C-1
+    .db $3C ; C#1
+    .db $E2 ; D-1
+    .db $8D ; D#1
     .db $3E ; E-1
-    .db $F3 ; F-1
-    .db $AC ; F#1
-    .db $69 ; G-1
+    .db $F2 ; F-1
+    .db $AB ; F#1
+    .db $68 ; G-1
     .db $29 ; G#1
     .db $ED ; A-1
-    .db $B5 ; A#1
-    .db $80 ; B-1
+    .db $B4 ; A#1
+    .db $7F ; B-1
     .db $4D ; C-2
-    .db $1E ; C#2
+    .db $1D ; C#2
     .db $F1 ; D-2
-    .db $C7 ; D#2
-    .db $9F ; E-2
+    .db $C6 ; D#2
+    .db $9E ; E-2
     .db $79 ; F-2
     .db $55 ; F#2
-    .db $34 ; G-2
+    .db $33 ; G-2
     .db $14 ; G#2
     .db $F6 ; A-2
     .db $DA ; A#2
@@ -207,11 +207,11 @@ pitchFrequencies_lo:
     .db $3C ; F-3
     .db $2A ; F#3
     .db $19 ; G-3
-    .db $0A ; G#3
-    .db $FB ; A-3
+    .db $09 ; G#3
+    .db $FA ; A-3
     .db $EC ; A#3
     .db $DF ; B-3
-    .db $D8 ; C-4
+    .db $D2 ; C-4
     .db $C7 ; C#4
     .db $BB ; D-4
     .db $B1 ; D#4
