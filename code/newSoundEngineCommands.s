@@ -228,7 +228,9 @@ nse_execSqTriNoise:
 nse_exec_Cut:
     tay
 
-    lda #$0
+    ; set low-nibble (active volume) to 0.
+    lda wMusChannel_BaseVolume-1.w, x
+    and #$F0
     sta wMusChannel_BaseVolume-1.w, x
 
     tya

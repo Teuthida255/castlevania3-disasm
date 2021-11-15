@@ -330,9 +330,8 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
     
     # output state
     state_instr = None
-    state_vol = None
-    if chan_idx == NSE_TRI:
-        state_vol = 1
+    state_vol = 0xF
+    vol_needs_setting = True
     state_echo_vol = None
     state_echo_vol_pending_addr = -1
     state_note = None
@@ -630,13 +629,15 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
         else:
             # select write volume if it has changed
             vol_change = False
-            prev_vol = state_vol
-            if vol is None and state_vol is None and note:
-                # default to 0xF if vol and state_vol are none.
-                vol = 0xF
+            prev_vol = state_vol if not vol_needs_setting else None
             if vol is not None and vol != state_vol:
                 vol_change = vol != state_vol
                 state_vol = vol
+                if vol_change:
+                    vol_needs_setting = False
+            if vol_needs_setting and note:
+                vol_needs_setting = False
+                vol_change = True
 
             # set instrument (state)
             if instr is not None:
@@ -647,6 +648,7 @@ def make_phrase_data(song_idx, chan_idx, pattern_idx):
 
             # note (or cut or release or continue)
             if cut:
+                vol_needs_setting=True
                 # (low nibble of this is the 'wait' time)
                 out_byte(opcodes["cut"])
                 set_wait(row_idx)
